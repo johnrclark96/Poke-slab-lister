@@ -2,12 +2,15 @@
 setlocal ENABLEDELAYEDEXPANSION
 
 REM =======================
-REM  USER CONFIG (YOUR APP)
+REM  LOAD CREDENTIALS
 REM =======================
-set "EBAY_CLIENT_ID=JohnClar-p-PRD-c8135f6e7-528be997"
-set "EBAY_CLIENT_SECRET=PRD-8135f6e740de-933c-4107-8bdb-01b0"
-set "EBAY_REFRESH_TOKEN=v^1.1#i^1#r^1#f^0#I^3#p^3#t^Ul4xMF8zOjQzMTUxM0E4OEYzNUUxRTEzNzY2NjFDRURBNURGQkRCXzFfMSNFXjI2MA=="
-set "EBAY_RETURN_POLICY_ID=272036672014"
+if not exist "secrets.env" (
+  echo ERROR: secrets.env not found
+  pause & exit /b 1
+)
+for /f "usebackq tokens=1* delims== eol=#" %%A in ("secrets.env") do (
+  set "%%A=%%B"
+)
 
 REM =======================
 REM  PATHS (EDIT IF NEEDED)
@@ -43,6 +46,10 @@ REM =======================================================
 if "%EBAY_CLIENT_ID%"=="" (echo ERROR: EBAY_CLIENT_ID is blank& pause & exit /b 1)
 if "%EBAY_CLIENT_SECRET%"=="" (echo ERROR: EBAY_CLIENT_SECRET is blank& pause & exit /b 1)
 if "%EBAY_REFRESH_TOKEN%"=="" (echo ERROR: EBAY_REFRESH_TOKEN is blank& pause & exit /b 1)
+if "%EBAY_RETURN_POLICY_ID%"=="" (echo ERROR: EBAY_RETURN_POLICY_ID is blank& pause & exit /b 1)
+if "%EBAY_PAYMENT_POLICY_ID%"=="" (echo ERROR: EBAY_PAYMENT_POLICY_ID is blank& pause & exit /b 1)
+if "%EBAY_FULFILLMENT_POLICY_ID%"=="" (echo ERROR: EBAY_FULFILLMENT_POLICY_ID is blank& pause & exit /b 1)
+if "%EBAY_LOCATION_ID%"=="" (echo ERROR: EBAY_LOCATION_ID is blank& pause & exit /b 1)
 
 for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass ^
   -Command ^
@@ -65,9 +72,6 @@ if "%ACCESS_TOKEN%"=="" (
 
 REM Export token + common vars so PowerShell scripts can read them
 set "ACCESS_TOKEN=%ACCESS_TOKEN%"
-if "%EBAY_PAYMENT_POLICY_ID%"=="" set EBAY_PAYMENT_POLICY_ID=272036644014
-if "%EBAY_FULFILLMENT_POLICY_ID%"=="" set EBAY_FULFILLMENT_POLICY_ID=272036663014
-if "%EBAY_LOCATION_ID%"=="" set EBAY_LOCATION_ID=POKESLABS_US
 set "CSV_PATH=%CSV%"
 set "IMAGES_DIR=%IMGDIR%"
 

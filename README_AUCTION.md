@@ -15,6 +15,21 @@ This package switches listings to **7‑day AUCTIONS** and ensures the three scr
 - Titles: language tag `[EN]`/`[JP]` after card name
 - SKU: optional/blank; falls back to `{grader}-{cert_number}` only if required
 
+## Credentials
+Create a `secrets.env` file in the repository root with your eBay credentials and policy IDs. Each line should follow `KEY=VALUE` format:
+
+```
+EBAY_CLIENT_ID=your-app-id
+EBAY_CLIENT_SECRET=your-app-secret
+EBAY_REFRESH_TOKEN=your-refresh-token
+EBAY_PAYMENT_POLICY_ID=your-payment-policy-id
+EBAY_FULFILLMENT_POLICY_ID=your-fulfillment-policy-id
+EBAY_RETURN_POLICY_ID=your-return-policy-id
+EBAY_LOCATION_ID=your-location-id
+```
+
+`List_Slabs.bat` loads these values and uses them when invoking the PowerShell scripts. The file is already ignored by git.
+
 ## Environment variables (optional)
 - `CSV_PATH` → path to `master.csv` (if not passing `-CsvPath`)
 - `IMAGES_SRC` → source root where your iPhone photos live (USB/DCIM path)
