@@ -35,21 +35,36 @@ function Invoke-EpsUpload {
   <PictureName>$PictureName</PictureName>
 </UploadSiteHostedPicturesRequest>
 "@
+  $content   = [System.Net.Http.MultipartFormDataContent]::new()
+  $xmlPart   = [System.Net.Http.StringContent]::new($xml, [System.Text.Encoding]::UTF8, "text/xml")
+  $content.Add($xmlPart, "XML Payload")
 
-  $boundary = [System.Guid]::NewGuid().ToString()
-  $LF = "`r`n"
-  $fileBytes = [System.IO.File]::ReadAllBytes($LocalPath)
-  $fileHeader = "--$boundary$LF" +
-                "Content-Disposition: form-data; name=`"file`"; filename=`"$(Split-Path $LocalPath -Leaf)`"$LF" +
-                "Content-Type: application/octet-stream$LF$LF"
-  $fileFooter = "$LF--$boundary--$LF"
+  $bytes     = [System.IO.File]::ReadAllBytes($LocalPath)
+  $imgPart   = [System.Net.Http.ByteArrayContent]::new($bytes)
+  $imgPart.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
+  $content.Add($imgPart, "file", [System.IO.Path]::GetFileName($LocalPath))
 
-  $content = ([System.Text.Encoding]::ASCII.GetBytes($fileHeader)) + $fileBytes + ([System.Text.Encoding]::ASCII.GetBytes($fileFooter))
+  $client = [System.Net.Http.HttpClient]::new()
+  foreach ($k in $Headers.Keys) { $client.DefaultRequestHeaders.Add($k, $Headers[$k]) }
 
-  $resp = Invoke-WebRequest -Uri $EPS_Endpoint -Method Post -Headers $Headers -ContentType "multipart/form-data; boundary=$boundary" -Body $content
-  $raw = $resp.Content
-  if ($raw -notmatch '<FullURL>([^<]+)</FullURL>') { throw "No FullURL in response: $raw" }
-  return $Matches[1]
+  try {
+    $resp = $client.PostAsync($EPS_Endpoint, $content).Result
+  } catch {
+    throw "HTTP request failed: $($_.Exception.Message)"
+  }
+  $raw = $resp.Content.ReadAsStringAsync().Result
+  if (-not $resp.IsSuccessStatusCode) { throw "EPS upload failed ($($resp.StatusCode)): $raw" }
+
+  try {
+    [xml]$xmlResp = $raw
+    $ns = [System.Xml.XmlNamespaceManager]::new($xmlResp.NameTable)
+    $ns.AddNamespace("e", "urn:ebay:apis:eBLBaseComponents")
+    $fullUrl = $xmlResp.SelectSingleNode("//e:SiteHostedPictureDetails/e:FullURL", $ns).InnerText
+  } catch {
+    throw "Malformed EPS response: $raw"
+  }
+  if (-not $fullUrl) { throw "No FullURL in response: $raw" }
+  return $fullUrl
 }
 
 $rows = Import-Csv $CsvPath
