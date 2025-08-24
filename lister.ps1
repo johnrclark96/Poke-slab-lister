@@ -43,7 +43,11 @@ function New-OfferBody($row, $epsUrls) {
 
   # --- Offer payload (Sell Inventory API) ---
   $payload = @{
-    "sku" = if ([string]::IsNullOrWhiteSpace($row.sku)) { "$($row.grader)-$($row.cert_number)" } else { $row.sku }
+    "sku" = if ([string]::IsNullOrWhiteSpace($row.sku)) {
+      "$($row.grader)-$($row.cert_number)"
+    } else {
+      $row.sku
+    }
     "marketplaceId" = $MarketplaceId
     "format" = "AUCTION"
     "listingType" = "AUCTION"
@@ -84,7 +88,7 @@ foreach ($row in $rows) {
   try {
     $response = Invoke-RestMethod -Method Post -Uri "https://api.ebay.com/sell/inventory/v1/offer" `
       -Headers @{ Authorization = "Bearer $env:ACCESS_TOKEN"; "Content-Type" = "application/json" } `
-      -Body $body
+      -Body $body -ErrorAction Stop
 
     if ($response.offerId) {
       Write-Host "Created offer with ID $($response.offerId)"

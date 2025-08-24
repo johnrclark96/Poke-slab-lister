@@ -82,7 +82,7 @@ foreach ($row in $rows) {
   try {
     $response = Invoke-RestMethod -Method Post -Uri "https://api.ebay.com/sell/inventory/v1/offer" `
       -Headers @{ Authorization = "Bearer $env:ACCESS_TOKEN"; "Content-Type" = "application/json" } `
-      -Body $body
+      -Body $body -ErrorAction Stop
     if ($response.offerId) {
       Write-Host "Created offer with ID $($response.offerId)"
     } else {
