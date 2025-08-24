@@ -1,14 +1,20 @@
 # Local secrets (never commit)
 secrets.env
+secrets.ps1
 
-# Logs
+# Logs and generated output
 logs/
+_out/
 run_*.log
+
+# Ignore generated EPS map
+eps_image_map.json
 
 #Image files
 Images/
 
 Master CSV file
 master.csv
-# Ignore removed duplicate directories
-ss/
+
+# Sentinel for enabling live runs
+.ebay-live.ok

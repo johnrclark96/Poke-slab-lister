@@ -1,21 +1,3 @@
-
-version: 1
-
-title_with_specialty: "{card_name} [{language_tag}] {specialty} {card_number} – {set_name} – {grade}"
-title_without_specialty: "{card_name} [{language_tag}] {card_number} – {set_name} – {grade}"
-
-description: |
-  <Card Name> #<Card Number> from <Set Name>
-  <Grader> <Grade>
-  Cert #: <CertNumber>
-  Shipped quickly and securely in a bubble mailer with ding defender
-
-language_tags:
-  English: "EN"
-  Japanese: "JP"
-  German: "DE"
-  French: "FR"
-  Spanish: "ES"
-  Italian: "IT"
-  Korean: "KR"
-  Chinese: "ZH"
+with_specialty: "{card_name} {specialty} {card_number} – {set_name} – {grade} – {language}"
+without_specialty: "{card_name} {card_number} – {set_name} – {grade} – {language}"
+desc: "<Card Name> #<Card Number> from <Set Name>\n<Grader> <Grade>\nCert #: <CertNumber>\nShipped quickly and securely in a bubble mailer with ding defender"
