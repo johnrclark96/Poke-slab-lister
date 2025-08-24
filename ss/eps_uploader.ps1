@@ -30,30 +30,39 @@ function Invoke-EpsUpload {
   $xml = @"
 <?xml version="1.0" encoding="utf-8"?>
 <UploadSiteHostedPicturesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <RequesterCredentials><eBayAuthToken>$($env:ACCESS_TOKEN)</eBayAuthToken></RequesterCredentials>
   <PictureName>$PictureName</PictureName>
 </UploadSiteHostedPicturesRequest>
 "@
 
-  $content = New-Object System.Net.Http.MultipartFormDataContent
-  $xmlContent = New-Object System.Net.Http.StringContent($xml, [System.Text.Encoding]::UTF8, "text/xml")
-  $content.Add($xmlContent, "XML Payload")
+  $content   = [System.Net.Http.MultipartFormDataContent]::new()
+  $xmlPart   = [System.Net.Http.StringContent]::new($xml, [System.Text.Encoding]::UTF8, "text/xml")
+  $content.Add($xmlPart, "XML Payload")
 
-  $bytes = [IO.File]::ReadAllBytes($LocalPath)
-  $imgContent = New-Object System.Net.Http.ByteArrayContent($bytes)
-  $imgContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("image/jpeg")
-  $content.Add($imgContent, "file", [IO.Path]::GetFileName($LocalPath))
+  $bytes     = [System.IO.File]::ReadAllBytes($LocalPath)
+  $imgPart   = [System.Net.Http.ByteArrayContent]::new($bytes)
+  $imgPart.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
+  $content.Add($imgPart, "file", [System.IO.Path]::GetFileName($LocalPath))
 
-  $client = New-Object System.Net.Http.HttpClient
+  $client = [System.Net.Http.HttpClient]::new()
   foreach ($k in $Headers.Keys) { $client.DefaultRequestHeaders.Add($k, $Headers[$k]) }
 
-  $resp = $client.PostAsync($EPS_Endpoint, $content).Result
-  $raw  = $resp.Content.ReadAsStringAsync().Result
+  try {
+    $resp = $client.PostAsync($EPS_Endpoint, $content).Result
+  } catch {
+    throw "HTTP request failed: $($_.Exception.Message)"
+  }
+  $raw = $resp.Content.ReadAsStringAsync().Result
   if (-not $resp.IsSuccessStatusCode) { throw "EPS upload failed ($($resp.StatusCode)): $raw" }
 
-  [xml]$xmlResp = $raw
-  $ns = New-Object System.Xml.XmlNamespaceManager($xmlResp.NameTable)
-  $ns.AddNamespace("e", "urn:ebay:apis:eBLBaseComponents")
-  $fullUrl = $xmlResp.SelectSingleNode("//e:SiteHostedPictureDetails/e:FullURL", $ns).InnerText
+  try {
+    [xml]$xmlResp = $raw
+    $ns = [System.Xml.XmlNamespaceManager]::new($xmlResp.NameTable)
+    $ns.AddNamespace("e", "urn:ebay:apis:eBLBaseComponents")
+    $fullUrl = $xmlResp.SelectSingleNode("//e:SiteHostedPictureDetails/e:FullURL", $ns).InnerText
+  } catch {
+    throw "Malformed EPS response: $raw"
+  }
   if (-not $fullUrl) { throw "No FullURL in response: $raw" }
   return $fullUrl
 }
