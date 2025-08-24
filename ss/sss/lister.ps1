@@ -72,7 +72,7 @@ function New-OfferBody($row, $epsUrls) {
 $epsMapPath = Join-Path (Split-Path $CsvPath) "eps_image_map.json"
 $epsUrls = @{}
 if (Test-Path $epsMapPath) {
-  $epsUrls = Get-Content $epsMapPath | ConvertFrom-Json
+  $epsUrls = Get-Content $epsMapPath | ConvertFrom-Json -AsHashtable
 }
 
 $rows = Import-Csv -Path $CsvPath
