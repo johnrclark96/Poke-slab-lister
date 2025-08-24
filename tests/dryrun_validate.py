@@ -1,4 +1,4 @@
-import csv, json, math, pathlib, shutil, subprocess
+import csv, json, math, pathlib, shutil, subprocess, os
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CSV_PATH = ROOT / '_tests' / 'test.csv'
@@ -74,15 +74,22 @@ if pwsh:
     eps_map = ROOT / 'eps_image_map.json'
     if eps_map.exists():
         eps_map.unlink()
-    subprocess.run([pwsh, str(ROOT/'eps_uploader.ps1'), '-CsvPath', str(CSV_PATH), '-DryRun'], check=True)
-    subprocess.run([pwsh, str(ROOT/'lister.ps1'), '-CsvPath', str(CSV_PATH), '-DryRun'], check=True)
+    env = dict(os.environ)
+    env.update({
+        'EBAY_PAYMENT_POLICY_ID': '1',
+        'EBAY_RETURN_POLICY_ID': '1',
+        'EBAY_FULFILLMENT_POLICY_ID': '1',
+        'EBAY_LOCATION_ID': '1',
+    })
+    subprocess.run([pwsh, str(ROOT/'eps_uploader.ps1'), '-CsvPath', str(CSV_PATH), '-ImagesDir', str(ROOT/'_tests'), '-AccessToken', 'dummy', '-DryRun'], check=True, env=env)
+    subprocess.run([pwsh, str(ROOT/'lister.ps1'), '-CsvPath', str(CSV_PATH), '-AccessToken', 'dummy', '-ImageMap', str(eps_map), '-ListingFormat', 'AUCTION', '-DryRun'], check=True, env=env)
     with open(eps_map, 'r', encoding='utf-8') as fh:
         eps_data = json.load(fh)
     for col in ['Image_Front','Image_Back','TopFrontImage','TopBackImage']:
         fname = row[col]
         assert eps_data[fname] == f"https://example.invalid/eps/{fname}"
-    payload_files = list((out_dir / 'payloads').glob('*.json'))
-    assert payload_files, 'No payloads generated'
+    payload_files = list((out_dir / 'payloads').glob('*Offer*.json'))
+    assert payload_files, 'No offer payload generated'
     with open(payload_files[0], 'r', encoding='utf-8') as fh:
         payload = json.load(fh)
     assert payload['format'] == 'AUCTION'

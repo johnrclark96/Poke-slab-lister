@@ -1,22 +1,18 @@
-Param(
-  [string]$CsvPath = "./master.csv",
-  [switch]$Live,
+param(
+  [Parameter(Mandatory=$true)][string]$CsvPath,
+  [Parameter(Mandatory=$true)][string]$AccessToken,
+  [ValidateSet('AUCTION','FIXED')][string]$ListingFormat = 'AUCTION',
+  [string]$ImageMap = 'eps_image_map.json',
   [switch]$DryRun
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($Live -and $DryRun) { throw 'Use -Live or -DryRun, not both' }
-if (-not $Live -and -not $DryRun) { $DryRun = $true }
-
-$sentinel = Join-Path $PSScriptRoot '.ebay-live.ok'
-$IsLive = $false
-if ($Live) {
-  if ($env:EBAY_ENV -ne 'prod') { throw 'Refusing Live: EBAY_ENV must be prod' }
-  if (-not (Test-Path $sentinel)) { throw 'Refusing Live: .ebay-live.ok missing' }
-  $IsLive = $true
-}
+if (-not (Test-Path $CsvPath)) { throw "CSV file not found: $CsvPath" }
+$mapPath = if ([System.IO.Path]::IsPathRooted($ImageMap)) { $ImageMap } else { Join-Path (Split-Path $CsvPath) $ImageMap }
+if (-not (Test-Path $mapPath)) { throw "Image map not found: $mapPath" }
+$epsUrls = Get-Content $mapPath | ConvertFrom-Json -AsHashtable
 
 if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
   Install-Module -Name powershell-yaml -Scope CurrentUser -Force | Out-Null
@@ -28,6 +24,17 @@ $textSpecPath = Join-Path $PSScriptRoot 'specs_text_formats.yaml'
 $itemSpecs = ConvertFrom-Yaml (Get-Content $itemSpecPath -Raw)
 $textSpecs = ConvertFrom-Yaml (Get-Content $textSpecPath -Raw)
 
+$requiredCols = @('CardName','CardNumber','SetName','Language','Grader','Grade','CertNumber','calculated_price','Image_Front','Image_Back','TopFrontImage','TopBackImage')
+$rows = Import-Csv -Path $CsvPath
+foreach ($col in $requiredCols) {
+  if (-not ($rows[0].PSObject.Properties.Name -contains $col)) { throw "Missing required column: $col" }
+}
+
+foreach ($row in $rows) {
+  if (-not $itemSpecs.grader_map.ContainsKey($row.Grader)) { throw "Unmapped grader: $($row.Grader)" }
+  if (-not $itemSpecs.language_map.ContainsKey($row.Language)) { throw "Unmapped language: $($row.Language)" }
+}
+
 function Fill-Template([string]$template, [hashtable]$data) {
   $result = $template
   foreach ($k in $data.Keys) {
@@ -38,99 +45,74 @@ function Fill-Template([string]$template, [hashtable]$data) {
 }
 
 function Invoke-EbayApi {
-  param(
-    [string]$Method,
-    [string]$Url,
-    [hashtable]$Headers,
-    [string]$Body,
-    [string]$Tag
-  )
-  if (-not $IsLive) {
+  param([string]$Method,[string]$Url,[string]$Body,[string]$Tag)
+  if ($DryRun) {
     $outDir = Join-Path $PSScriptRoot '_out/payloads'
     if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
     $ts = Get-Date -Format 'yyyyMMddHHmmssfff'
     $file = Join-Path $outDir "$ts.$Tag.$Method.json"
     $Body | Out-File -Encoding utf8 -FilePath $file
     Write-Host "DryRun: wrote payload $file"
-    return $null
+    return
   }
-  return Invoke-RestMethod -Method $Method -Uri $Url -Headers $Headers -Body $Body
+  $headers = @{ 'Authorization' = "Bearer $AccessToken"; 'Content-Type'='application/json' }
+  $attempt = 0
+  while ($true) {
+    try {
+      return Invoke-RestMethod -Method $Method -Uri $Url -Headers $headers -Body $Body
+    } catch {
+      $resp = $_.Exception.Response
+      if ($resp -and ($resp.StatusCode.value__ -eq 429 -or $resp.StatusCode.value__ -ge 500) -and $attempt -lt 5) {
+        $delay = [math]::Pow(2,$attempt)
+        Start-Sleep -Seconds $delay
+        $attempt++
+      } else {
+        throw
+      }
+    }
+  }
 }
 
-if (-not (Test-Path $CsvPath)) { throw "CSV file not found: $CsvPath" }
+$durationDays = if ($env:LISTING_DURATION_DAYS) { $env:LISTING_DURATION_DAYS } else { 7 }
+$durationIso = "P$durationDays" + 'D'
+$marketplace = if ($env:EBAY_MARKETPLACE_ID) { $env:EBAY_MARKETPLACE_ID } else { 'EBAY_US' }
 
-$epsMapPath = Join-Path (Split-Path $CsvPath) 'eps_image_map.json'
-$epsUrls = @{}
-if (Test-Path $epsMapPath) { $epsUrls = Get-Content $epsMapPath | ConvertFrom-Json -AsHashtable }
-
-$rows = Import-Csv -Path $CsvPath
 foreach ($row in $rows) {
-  $calc = [double]$row.calculated_price
-  $startPrice = [math]::Floor($calc * 0.75 - 1) + 0.99
-
   $images = @()
   foreach ($fname in @($row.Image_Front,$row.Image_Back,$row.TopFrontImage,$row.TopBackImage)) {
-    if ($fname -and $epsUrls.ContainsKey($fname)) { $images += $epsUrls[$fname] }
+    if ($fname -and $epsUrls.ContainsKey($fname)) { $images += $epsUrls[$fname] } else { if ($fname) { throw "Missing EPS URL for $fname" } }
   }
-
   $grader = $itemSpecs.grader_map[$row.Grader]
   $language = $itemSpecs.language_map[$row.Language]
   $titleTemplate = if ($row.Specialty) { $textSpecs.with_specialty } else { $textSpecs.without_specialty }
-  $title = Fill-Template $titleTemplate @{
-    card_name = $row.CardName
-    specialty = $row.Specialty
-    card_number = $row.CardNumber
-    set_name = $row.SetName
-    grade = $row.Grade
-    language = $language
-  }
-  $desc = Fill-Template $textSpecs.desc @{
-    'Card Name' = $row.CardName
-    'Card Number' = $row.CardNumber
-    'Set Name' = $row.SetName
-    'Grader' = $grader
-    'Grade' = $row.Grade
-    'CertNumber' = $row.CertNumber
-  }
+  $title = Fill-Template $titleTemplate @{ card_name=$row.CardName; specialty=$row.Specialty; card_number=$row.CardNumber; set_name=$row.SetName; grade=$row.Grade; language=$language }
+  $desc = Fill-Template $textSpecs.desc @{ 'Card Name'=$row.CardName; 'Card Number'=$row.CardNumber; 'Set Name'=$row.SetName; 'Grader'=$grader; 'Grade'=$row.Grade; 'CertNumber'=$row.CertNumber }
+  $sku = if ([string]::IsNullOrWhiteSpace($row.SKU)) { "$($row.Grader)-$($row.CertNumber)" } else { $row.SKU }
 
-  $aspects = @{
-    Brand = $itemSpecs.brand
-    Graded = 'Yes'
-    Grade = $row.Grade
-    'Certification Number' = $row.CertNumber
-    Set = $row.SetName
-    'Card Name' = $row.CardName
-    'Card Number' = $row.CardNumber
-    Language = $language
-    'Trading Card Type' = 'Pokémon TCG'
-  }
+  $inventory = @{ sku=$sku; availability=@{shipToLocationAvailability=@{quantity=1}}; condition=$itemSpecs.condition_default; product=@{brand=$itemSpecs.brand; title=$title; description=$desc; imageUrls=$images} }
+  $invJson = $inventory | ConvertTo-Json -Depth 8
+  Invoke-EbayApi -Method Put -Url ("https://api.ebay.com/sell/inventory/v1/inventory_item/"+$sku) -Body $invJson -Tag 'InventoryItem'
 
-  $payload = @{
-    sku = if ([string]::IsNullOrWhiteSpace($row.SKU)) { "$($row.Grader)-$($row.CertNumber)" } else { $row.SKU }
-    marketplaceId = 'EBAY_US'
-    format = 'AUCTION'
-    listingType = 'AUCTION'
-    listingDuration = 'P7D'
-    availableQuantity = $itemSpecs.quantity_default
-    categoryId = $itemSpecs.categoryId
-    listingDescription = $desc
-    pricingSummary = @{ startPrice = @{ value = [math]::Round($startPrice,2); currency = 'USD' } }
-    listingPolicies = @{
-      paymentPolicyId = $env:EBAY_PAYMENT_POLICY_ID
-      returnPolicyId = $env:EBAY_RETURN_POLICY_ID
-      fulfillmentPolicyId = $env:EBAY_FULFILLMENT_POLICY_ID
-    }
-    merchantLocationKey = $env:EBAY_LOCATION_ID
-    item = @{
-      title = $title
-      description = $desc
-      brand = $itemSpecs.brand
-      imageUrls = $images
-      aspects = $aspects
-      condition = $itemSpecs.condition_default
-    }
+  $calc = [double]$row.calculated_price
+  if ($ListingFormat -eq 'AUCTION') {
+    $startPrice = [math]::Floor($calc * 0.75 - 1) + 0.99
+    $priceObj = @{ startPrice = @{ value = [math]::Round($startPrice,2); currency='USD' } }
+    $format = 'AUCTION'
+  } else {
+    $priceObj = @{ price = @{ value = [math]::Round($calc,2); currency='USD' } }
+    $format = 'FIXED_PRICE'
   }
+  $aspects = @{ Brand = $itemSpecs.brand }
+  $offer = @{
+    sku=$sku; marketplaceId=$marketplace; format=$ListingFormat; listingDuration=$durationIso; pricingSummary=$priceObj;
+    listingPolicies=@{ paymentPolicyId=$env:EBAY_PAYMENT_POLICY_ID; returnPolicyId=$env:EBAY_RETURN_POLICY_ID; fulfillmentPolicyId=$env:EBAY_FULFILLMENT_POLICY_ID };
+    merchantLocationKey=$env:EBAY_LOCATION_ID;
+    item=@{ title=$title; description=$desc; imageUrls=$images; aspects=$aspects }
+  }
+  $offerJson = $offer | ConvertTo-Json -Depth 8
+  Invoke-EbayApi -Method Post -Url 'https://api.ebay.com/sell/inventory/v1/offer' -Body $offerJson -Tag 'Offer'
 
-  $bodyJson = $payload | ConvertTo-Json -Depth 8
-  Invoke-EbayApi -Method Post -Url 'https://api.ebay.com/sell/inventory/v1/offer' -Headers @{ 'Content-Type'='application/json'; Authorization="Bearer $env:ACCESS_TOKEN" } -Body $bodyJson -Tag 'Offer'
+  $publish = @{ offerId='DUMMY' } | ConvertTo-Json
+  Invoke-EbayApi -Method Post -Url 'https://api.ebay.com/sell/inventory/v1/offer/publish' -Body $publish -Tag 'Publish'
+  Write-Host "$sku listed"
 }

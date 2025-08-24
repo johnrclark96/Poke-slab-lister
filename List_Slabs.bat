@@ -1,67 +1,82 @@
 @echo off
 setlocal ENABLEDELAYEDEXPANSION
+REM Ensure we run from the script directory
+cd /d "%~dp0"
 
-set "SECRETS=C:\Users\johnr\Documents\ebay\secrets.env"
+set "SECRETS=%~dp0secrets.env"
 if not exist "%SECRETS%" (
   echo ERROR: secrets file not found: %SECRETS%
-  pause & exit /b 1
+  exit /b 1
 )
 for /f "usebackq tokens=1* delims== eol=#" %%A in ("%SECRETS%") do set "%%A=%%B"
 
 if "%EBAY_ENV%"=="" set EBAY_ENV=test
+if "%BASEDIR%"=="" set "BASEDIR=C:\Users\johnr\Documents\ebay"
+if "%LISTING_FORMAT%"=="" set "LISTING_FORMAT=AUCTION"
+if "%LISTING_DURATION_DAYS%"=="" set "LISTING_DURATION_DAYS=7"
 
-set "BASEDIR=C:\Users\johnr\Documents\ebay"
 set "CSV=%BASEDIR%\master.csv"
 set "IMGDIR=%BASEDIR%\Images"
-set "EPS_SCRIPT=%BASEDIR%\eps_uploader.ps1"
-set "LISTER_SCRIPT=%BASEDIR%\lister.ps1"
 set "LOGDIR=%BASEDIR%\logs"
-if not exist "%LOGDIR%" mkdir "%LOGDIR%"
+set "OUTMAP=%BASEDIR%\eps_image_map.json"
+set "PULL_SCRIPT=%~dp0Pull-Photos-FromMasterCSV.ps1"
+set "EPS_SCRIPT=%~dp0eps_uploader.ps1"
+set "LISTER_SCRIPT=%~dp0lister.ps1"
 
-for /f "tokens=1-3 delims=/ " %%a in ("%date%") do (set d=%%c-%%a-%%b)
-for /f "tokens=1-2 delims=: " %%a in ("%time%") do (set t=%%a-%%b)
-set "LOG=%LOGDIR%\run_%d%_%t%.log"
-
-set "PSARGS=-CsvPath \"%CSV%\""
-if /I "%1"=="live" (
-  set "PSARGS=%PSARGS% -Live"
-) else (
-  set "PSARGS=%PSARGS% -DryRun"
+if not exist "%CSV%" (
+  echo ERROR: master.csv not found at %CSV%
+  exit /b 1
+)
+if not exist "%IMGDIR%" (
+  echo ERROR: Images directory not found at %IMGDIR%
+  exit /b 1
+)
+if not exist "%PULL_SCRIPT%" (
+  echo ERROR: missing Pull-Photos-FromMasterCSV.ps1
+  exit /b 1
+)
+if not exist "%EPS_SCRIPT%" (
+  echo ERROR: missing eps_uploader.ps1
+  exit /b 1
+)
+if not exist "%LISTER_SCRIPT%" (
+  echo ERROR: missing lister.ps1
+  exit /b 1
 )
 
+if not exist "%LOGDIR%" mkdir "%LOGDIR%" >nul 2>&1
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "STAMP=%%I"
+set "LOG=%LOGDIR%\run_%STAMP%.log"
+
+set "RUNMODE=-DryRun"
+if /I "%1"=="live" set "RUNMODE=-Live"
+
+REM Obtain OAuth token when running live
 if /I "%1"=="live" (
   if "%EBAY_CLIENT_ID%"=="" (echo ERROR: EBAY_CLIENT_ID missing & exit /b 1)
   if "%EBAY_CLIENT_SECRET%"=="" (echo ERROR: EBAY_CLIENT_SECRET missing & exit /b 1)
   if "%EBAY_REFRESH_TOKEN%"=="" (echo ERROR: EBAY_REFRESH_TOKEN missing & exit /b 1)
-  for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass ^
-    -Command "$pair='${env:EBAY_CLIENT_ID}:${env:EBAY_CLIENT_SECRET}';" ^
-    "$basic=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair));" ^
-    "$headers=@{Authorization='Basic '+$basic};" ^
-    "$scope='https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account https://api.ebay.com/oauth/api_scope/sell.fulfillment';" ^
-    "$body=@{grant_type='refresh_token';refresh_token=$env:EBAY_REFRESH_TOKEN;scope=$scope};" ^
-    "$resp=Invoke-RestMethod -Method Post -Uri 'https://api.ebay.com/identity/v1/oauth2/token' -Headers $headers -Body $body -ContentType 'application/x-www-form-urlencoded';" ^
-    "[Console]::Out.Write($resp.access_token)"`) do set "ACCESS_TOKEN=%%A"
+  for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "\$pair=\"${env:EBAY_CLIENT_ID}:${env:EBAY_CLIENT_SECRET}\";\$basic=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(\$pair));\$headers=@{Authorization=\"Basic \$basic\"};\$scope='https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account https://api.ebay.com/oauth/api_scope/sell.fulfillment';\$body=@{grant_type='refresh_token';refresh_token=$env:EBAY_REFRESH_TOKEN;scope=\$scope};\$resp=Invoke-RestMethod -Method Post -Uri 'https://api.ebay.com/identity/v1/oauth2/token' -Headers \$headers -Body \$body -ContentType 'application/x-www-form-urlencoded';[Console]::Out.Write(\$resp.access_token)"`) do set "ACCESS_TOKEN=%%A"
   if "%ACCESS_TOKEN%"=="" (echo ERROR: failed to obtain access token & exit /b 1)
 ) else (
   set "ACCESS_TOKEN=dummy"
 )
-
-set "CSV_PATH=%CSV%"
-set "IMAGES_DIR=%IMGDIR%"
-
-echo === Uploading images ===
-powershell -NoProfile -ExecutionPolicy Bypass -File "%EPS_SCRIPT%" %PSARGS% 1>>"%LOG%" 2>>&1
-if errorlevel 1 (
-  echo EPS upload failed. See log: %LOG%
-  exit /b 1
-)
-
-echo === Creating listings ===
-powershell -NoProfile -ExecutionPolicy Bypass -File "%LISTER_SCRIPT%" %PSARGS% 1>>"%LOG%" 2>>&1
-if errorlevel 1 (
-  echo Listing step failed. See log: %LOG%
-  exit /b 1
-)
+call :RunStep "Pull photos" powershell -NoProfile -ExecutionPolicy Bypass -File "%PULL_SCRIPT%" -CsvPath "%CSV%" -DestDir "%IMGDIR%"
+if errorlevel 1 goto :failure
+call :RunStep "Upload EPS" powershell -NoProfile -ExecutionPolicy Bypass -File "%EPS_SCRIPT%" -CsvPath "%CSV%" -ImagesDir "%IMGDIR%" -AccessToken "%ACCESS_TOKEN%" -OutMap "%OUTMAP%" %RUNMODE%
+if errorlevel 1 goto :failure
+call :RunStep "Create listings" powershell -NoProfile -ExecutionPolicy Bypass -File "%LISTER_SCRIPT%" -CsvPath "%CSV%" -AccessToken "%ACCESS_TOKEN%" -ImageMap "%OUTMAP%" -ListingFormat "%LISTING_FORMAT%" %RUNMODE%
+if errorlevel 1 goto :failure
 
 echo Done. Log: %LOG%
-endlocal
+exit /b 0
+
+:RunStep
+set "STEP=%~1"
+shift
+%* >>"%LOG%" 2>>&1
+exit /b %errorlevel%
+
+:failure
+echo %STEP% failed. See log: %LOG%
+exit /b 1

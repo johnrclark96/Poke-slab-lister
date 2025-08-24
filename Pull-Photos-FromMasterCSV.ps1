@@ -1,80 +1,39 @@
-
 param(
-  [string]$CsvPath = ".\master.csv",
-  [string]$SourceRoot = $env:IMAGES_SRC,
-  [string]$DestDir = $env:IMAGES_DIR
+  [Parameter(Mandatory=$true)][string]$CsvPath,
+  [Parameter(Mandatory=$true)][string]$DestDir
 )
 
-$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-if (-not $CsvPath) { $CsvPath = ".\master.csv" }
+$sourceRoot = $env:PHOTOS_SRC
+if ([string]::IsNullOrWhiteSpace($sourceRoot)) { throw 'PHOTOS_SRC environment variable not set' }
+if (-not (Test-Path $sourceRoot)) { throw "Source directory not found: $sourceRoot" }
 if (-not (Test-Path $CsvPath)) { throw "CSV not found: $CsvPath" }
+if (-not (Test-Path $DestDir)) { New-Item -ItemType Directory -Path $DestDir | Out-Null }
 
-if ([string]::IsNullOrWhiteSpace($SourceRoot)) {
-  # Default to current folder if IMAGES_SRC not provided
-  $SourceRoot = (Get-Location).Path
-}
-if ([string]::IsNullOrWhiteSpace($DestDir)) {
-  $DestDir = Join-Path (Split-Path $CsvPath) "Images"
-}
-
-# Ensure destination exists & is clean
-if (Test-Path $DestDir) {
-  Get-ChildItem -Path $DestDir -Recurse -File | Remove-Item -Force
-} else {
-  New-Item -ItemType Directory -Path $DestDir | Out-Null
-}
-
-Write-Host "Pulling photos from: $SourceRoot"
-Write-Host "Destination Images folder: $DestDir"
-
-# Read CSV and collect distinct filenames from known columns
+$cols = @('Image_Front','Image_Back','TopFrontImage','TopBackImage')
 $rows = Import-Csv -Path $CsvPath
-$cols = @("Image_Front","Image_Back","TopFrontImage","TopBackImage","image_front_file","image_back_file","image_topfront_file","image_topback_file")
-
-$want = New-Object System.Collections.Generic.HashSet[string] ([System.StringComparer]::OrdinalIgnoreCase)
+$missing = New-Object System.Collections.Generic.List[string]
+$copied = 0
 foreach ($row in $rows) {
-  foreach ($c in $cols) {
-    if ($row.PSObject.Properties.Name -contains $c) {
-      $v = $row.$c
-      if ($v -and -not $want.Contains($v)) { $want.Add($v) | Out-Null }
+  foreach ($col in $cols) {
+    if (-not ($row.PSObject.Properties.Name -contains $col)) { continue }
+    $fname = $row.$col
+    if ([string]::IsNullOrWhiteSpace($fname)) { continue }
+    $src = Get-ChildItem -Path $sourceRoot -Recurse -Filter $fname | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    if ($src) {
+      Copy-Item -Path $src.FullName -Destination (Join-Path $DestDir $src.Name) -Force
+      Write-Host "Copied $($src.Name)"
+      $copied++
+    } else {
+      $missing.Add($fname)
+      Write-Warning "Missing source file: $fname"
     }
   }
 }
-
-if ($want.Count -eq 0) {
-  Write-Warning "No image filenames found in CSV."
-  exit 0
-}
-
-# Build a lookup of filename -> full path by scanning SourceRoot recursively (leafname match, case-insensitive)
-$lookup = @{}
-Write-Host "Scanning source tree (this may take a moment)..."
-Get-ChildItem -Path $SourceRoot -File -Recurse | ForEach-Object {
-  $leaf = $_.Name.ToLowerInvariant()
-  if (-not $lookup.ContainsKey($leaf)) { $lookup[$leaf] = @() }
-  $lookup[$leaf] += $_.FullName
-}
-
-$copied = 0
-$missing = @()
-
-foreach ($name in $want) {
-  $key = [System.IO.Path]::GetFileName($name).ToLowerInvariant()
-  if ($lookup.ContainsKey($key)) {
-    # choose newest if multiple
-    $candidate = $lookup[$key] | Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending | Select-Object -First 1
-    Copy-Item -Path $candidate -Destination (Join-Path $DestDir ([System.IO.Path]::GetFileName($name))) -Force
-    $copied++
-    Write-Host ("Copied {0}" -f $name)
-  } else {
-    $missing += $name
-    Write-Warning ("Could not find file: {0}" -f $name)
-  }
-}
-
-Write-Host ("Copied {0} file(s) to {1}" -f $copied, $DestDir)
+Write-Host "Copied $copied file(s) to $DestDir"
 if ($missing.Count -gt 0) {
-  Write-Warning ("Missing {0} file(s): {1}" -f $missing.Count, ($missing -join ", "))
-  exit 2
+  Write-Error ("Missing {0} file(s): {1}" -f $missing.Count, ($missing -join ', '))
+  exit 1
 }
