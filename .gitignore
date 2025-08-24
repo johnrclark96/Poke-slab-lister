@@ -1,0 +1,12 @@
+# Local secrets (never commit)
+secrets.env
+
+# Logs
+logs/
+run_*.log
+
+#Image files
+Images/
+
+Master CSV file
+master.csv

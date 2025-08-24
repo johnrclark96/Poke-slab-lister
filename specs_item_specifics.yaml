@@ -1,0 +1,39 @@
+
+# Project rules for Pokémon slab listings — item specifics, defaults, and normalization
+version: 1
+
+defaults:
+  card_size: "Standard"
+  autographed: "No"
+  material: "Card Stock"
+  vintage_rule: "year_manufactured <= 2002 -> Yes else No"
+  stage: null
+  features: null
+  finish: null
+  card_type: "Pokémon"
+  manufacturer: "The Pokémon Company"
+  game: "Pokémon TCG"
+  category_path: "Toys & Hobbies > Collectible Card Games > CCG Individual Cards"
+  country_of_manufacture: null
+  quantity: 1
+  condition: "Graded"
+
+ebay_aspect_mapping:
+  "aspects.Brand": "'The Pokémon Company'"
+  "aspects.Graded": "'Yes'"
+  "aspects.Grade": "grade"
+  "aspects.Certification Number": "cert_number"
+  "aspects.Set": "set_name"
+  "aspects.Card Name": "card_name"
+  "aspects.Card Number": "card_number"
+  "aspects.Language": "language"
+  "aspects.Trading Card Type": "'Pokémon TCG'"
+
+pricing_policy:
+  source: "PriceCharting"
+  rule: "Use higher of {graded_price, average_of_last_up_to_10_sales}; if no recent sales, use graded_price"
+  audit_columns:
+    - pricecharting_market
+    - recent_sales_avg
+    - calculated_price
+    - pricecharting_url
