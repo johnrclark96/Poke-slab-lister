@@ -24,6 +24,26 @@ Shipped quickly and securely in a bubble mailer with ding defender
 - startPrice: 75% of `calculated_price` rounded down to end in `.99` (e.g. `40.00 → 29.99`)
 - Brand aspect fixed to "The Pokémon Company"
 
+## End-to-end flow
+`List_Slabs.bat` orchestrates a full run:
+1. Copy iPhone photos named in `master.csv` into the local `Images/` folder.
+2. Upload those photos to eBay Picture Services and cache the HTTPS URLs in `eps_image_map.json`.
+3. Create inventory items and offers, then publish them to eBay.
+
+The batch script logs each step to `logs/run_YYYYMMDD_HHMMSS.log` and stops on the first error.
+
+## Configuration
+Populate `secrets.env` (never committed) with required credentials and optional overrides. Key options:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `BASEDIR` | `C:\Users\johnr\Documents\ebay` | Root folder containing `master.csv` and `Images/` |
+| `LISTING_FORMAT` | `AUCTION` | Default listing format (`AUCTION` or `FIXED`) |
+| `LISTING_DURATION_DAYS` | `7` | Duration for auction listings |
+| `EBAY_MARKETPLACE_ID` | `EBAY_US` | Marketplace for offers |
+
+Required credential keys are listed in `secrets.env.example`.
+
 ## Secrets
 Not committed. Stored at `C:\Users\johnr\Documents\ebay\secrets.env` with keys:
 ```

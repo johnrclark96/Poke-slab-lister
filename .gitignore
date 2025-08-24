@@ -3,15 +3,15 @@ secrets.env
 secrets.ps1
 
 # Logs and generated output
-logs/
-_out/
+/logs/
+/_out/
 run_*.log
 
 # Ignore generated EPS map
 eps_image_map.json
 
 #Image files
-Images/
+/Images/
 
 Master CSV file
 master.csv

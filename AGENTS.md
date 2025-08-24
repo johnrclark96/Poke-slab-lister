@@ -15,5 +15,9 @@
    - Title/Description from YAML, Brand = "The Pokémon Company".
 3) No network calls during validation.
 
+### Validate vs Publish
+- **Validate**: run `List_Slabs.bat` with no arguments. Uses DryRun and writes payloads to `_out/`.
+- **Publish**: run `List_Slabs.bat live` with required secrets, `EBAY_ENV=prod`, and `.ebay-live.ok`.
+
 ## Task-specific notes
 - If this folder has its own `AGENTS.md`, follow that in addition to these rules.
