@@ -43,7 +43,11 @@ function New-OfferBody($row, $epsUrls) {
 
   # --- Offer payload (Sell Inventory API) ---
   $payload = @{
-    "sku" = if ([string]::IsNullOrWhiteSpace($row.sku)) { "$($row.grader)-$($row.cert_number)" } else { $row.sku }
+    "sku" = if ([string]::IsNullOrWhiteSpace($row.sku)) {
+      "$($row.grader)-$($row.cert_number)"
+    } else {
+      $row.sku
+    }
     "marketplaceId" = $MarketplaceId
     "format" = "AUCTION"
     "listingType" = "AUCTION"
@@ -70,19 +74,37 @@ function New-OfferBody($row, $epsUrls) {
   return ($payload | ConvertTo-Json -Depth 8)
 }
 
+# Validate required inputs
+if (-not (Test-Path $CsvPath)) {
+  throw "CSV file not found: $CsvPath"
+}
+if ([string]::IsNullOrWhiteSpace($env:ACCESS_TOKEN)) {
+  throw "ACCESS_TOKEN environment variable is required"
+}
+
 # Load EPS image URL map if present
 $epsMapPath = Join-Path (Split-Path $CsvPath) "eps_image_map.json"
 $epsUrls = @{}
 if (Test-Path $epsMapPath) {
-  $epsUrls = Get-Content $epsMapPath | ConvertFrom-Json
+  $epsUrls = Get-Content $epsMapPath | ConvertFrom-Json -AsHashtable
 }
 
 $rows = Import-Csv -Path $CsvPath
 foreach ($row in $rows) {
   $body = New-OfferBody -row $row -epsUrls $epsUrls
   Write-Host "Creating AUCTION offer for $($row.card_name) #$($row.card_number) (Cert $($row.cert_number))"
-  # TODO: Post to eBay Sell Inventory API with your ACCESS_TOKEN:
-  # Invoke-RestMethod -Method Post -Uri "https://api.ebay.com/sell/inventory/v1/offer" `
-  #   -Headers @{ Authorization = "Bearer $env:ACCESS_TOKEN"; "Content-Type" = "application/json" } `
-  #   -Body $body
+  try {
+    $response = Invoke-RestMethod -Method Post -Uri "https://api.ebay.com/sell/inventory/v1/offer" `
+      -Headers @{ Authorization = "Bearer $env:ACCESS_TOKEN"; "Content-Type" = "application/json" } `
+      -Body $body -ErrorAction Stop
+
+    if ($response.offerId) {
+      Write-Host "Created offer with ID $($response.offerId)"
+    } else {
+      Write-Warning "Offer creation returned unexpected response: $(ConvertTo-Json $response -Depth 8)"
+    }
+  }
+  catch {
+    Write-Error "Failed to create offer: $($_.Exception.Message)"
+  }
 }
