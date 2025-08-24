@@ -38,7 +38,11 @@ function New-OfferBody($row, $epsUrls) {
   }
 
   $payload = @{
-    "sku" = ($row.sku ? $row.sku : "$($row.grader)-$($row.cert_number)")
+    "sku" = if ([string]::IsNullOrWhiteSpace($row.sku)) {
+      "$($row.grader)-$($row.cert_number)"
+    } else {
+      $row.sku
+    }
     "marketplaceId" = $MarketplaceId
     "format" = "AUCTION"
     "listingType" = "AUCTION"
@@ -89,3 +93,4 @@ foreach ($row in $rows) {
     Write-Error "Failed to create offer: $($_.Exception.Message)"
   }
 }
+
