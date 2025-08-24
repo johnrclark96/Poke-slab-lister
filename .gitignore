@@ -10,3 +10,5 @@ Images/
 
 Master CSV file
 master.csv
+# Ignore removed duplicate directories
+ss/
