@@ -1,0 +1,20 @@
+name: CI DryRun
+on: [pull_request]
+jobs:
+  dryrun:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PowerShell DryRun
+        shell: pwsh
+        env:
+          EBAY_ENV: test
+        run: |
+          New-Item -ItemType Directory -Path _tests -Force | Out-Null
+          @'
+SKU,Title,Description,calculated_price,Image_Front,Image_Back,TopFrontImage,TopBackImage,Grader,Grade,CertNumber,SetName,CardName,CardNumber,Language
+SKU-TEST,,,"40.00",IMG_0001.JPG,IMG_0002.JPG,IMG_0001_TOP.JPG,IMG_0002_TOP.JPG,PSA,10,12345678,Base Set,Charizard,4,English
+'@ | Set-Content -Encoding UTF8 _tests/test.csv
+          pwsh -NoProfile -ExecutionPolicy Bypass -File .\eps_uploader.ps1 -CsvPath .\_tests\test.csv -DryRun
+          pwsh -NoProfile -ExecutionPolicy Bypass -File .\lister.ps1 -CsvPath .\_tests\test.csv -DryRun
+          Get-ChildItem _out\payloads\*.json | ForEach-Object { Write-Host "OK: $($_.FullName)" }

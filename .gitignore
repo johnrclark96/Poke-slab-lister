@@ -1,12 +1,18 @@
 # Local secrets (never commit)
 secrets.env
+secrets.ps1
 
-# Logs
+# Logs and generated output
 logs/
 run_*.log
+_out/
+eps_image_map.json
 
-#Image files
+# Image files
 Images/
 
-Master CSV file
+# Master CSV file
 master.csv
+
+# Live sentinel
+.ebay-live.ok
