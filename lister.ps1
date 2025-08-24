@@ -8,6 +8,13 @@ Param(
 
 $ErrorActionPreference = "Stop"
 
+# Ensure YAML cmdlets are available
+Import-Module powershell-yaml -ErrorAction Stop
+
+# Load item specifics and text templates
+$itemSpecs    = Get-Content (Join-Path $PSScriptRoot 'specs_item_specifics.yaml') | ConvertFrom-Yaml
+$textFormats  = Get-Content (Join-Path $PSScriptRoot 'specs_text_formats.yaml')  | ConvertFrom-Yaml
+
 function New-OfferBody($row, $epsUrls) {
   # --- Auction pricing ---
   $calc = [double]$row.calculated_price
@@ -24,18 +31,49 @@ function New-OfferBody($row, $epsUrls) {
     if ($fname -and $epsUrls.ContainsKey($fname)) { $imageUrls += $epsUrls[$fname] }
   }
 
-  # --- Aspects ---
-  $aspects = @{
-    "Brand" = "The Pokémon Company";
-    "Graded" = "Yes";
-    "Grade" = $row.grade;
-    "Certification Number" = $row.cert_number;
-    "Set" = $row.set_name;
-    "Card Name" = $row.card_name;
-    "Card Number" = $row.card_number;
-    "Language" = $row.language;
-    "Trading Card Type" = "Pokémon TCG"
+  # --- Title & Description from templates ---
+  $languageTag = if ($textFormats.language_tags.ContainsKey($row.language)) {
+    $textFormats.language_tags[$row.language]
+  } else {
+    $row.language
   }
+  if ([string]::IsNullOrWhiteSpace($row.specialty)) {
+    $titleTemplate = $textFormats.title_without_specialty
+  } else {
+    $titleTemplate = $textFormats.title_with_specialty
+  }
+  $title = $titleTemplate.Replace('{card_name}', $row.card_name).
+                         Replace('{language_tag}', $languageTag).
+                         Replace('{specialty}', $row.specialty).
+                         Replace('{card_number}', $row.card_number).
+                         Replace('{set_name}', $row.set_name).
+                         Replace('{grade}', $row.grade)
+
+  $desc = $textFormats.description.Replace('<Card Name>', $row.card_name).
+                                   Replace('<Card Number>', $row.card_number).
+                                   Replace('<Set Name>', $row.set_name).
+                                   Replace('<Grader>', $row.grader).
+                                   Replace('<Grade>', $row.grade).
+                                   Replace('<CertNumber>', $row.cert_number)
+
+  # --- Aspects via mapping ---
+  $aspects = @{}
+  foreach ($key in $itemSpecs.ebay_aspect_mapping.Keys) {
+    if ($key.StartsWith('aspects.')) {
+      $aspectName = $key.Substring(8)
+      $expr = $itemSpecs.ebay_aspect_mapping[$key]
+      if ($expr -match "^'(.*)'$") {
+        $val = $matches[1]
+      } else {
+        $val = $row.$expr
+      }
+      $aspects[$aspectName] = $val
+    }
+  }
+
+  # --- Defaults ---
+  $quantity  = if ($row.quantity) { [int]$row.quantity } else { [int]$itemSpecs.defaults.quantity }
+  $condition = if ($row.condition) { $row.condition } else { $itemSpecs.defaults.condition }
 
   $pricingSummary = @{
     "startPrice" = @{ "value" = $startPrice; "currency" = "USD" }
@@ -48,9 +86,9 @@ function New-OfferBody($row, $epsUrls) {
     "format" = "AUCTION"
     "listingType" = "AUCTION"
     "listingDuration" = "P7D"
-    "availableQuantity" = 1
+    "availableQuantity" = $quantity
     "categoryId" = "183454"
-    "listingDescription" = $row.description
+    "listingDescription" = $desc
     "pricingSummary" = $pricingSummary
     "listingPolicies" = @{
       "paymentPolicyId" = $PolicyPaymentId
@@ -58,12 +96,12 @@ function New-OfferBody($row, $epsUrls) {
       "fulfillmentPolicyId" = $PolicyFulfillmentId
     }
     "item" = @{
-      "title" = $row.title
-      "description" = $row.description
+      "title" = $title
+      "description" = $desc
       "brand" = "The Pokémon Company"
       "imageUrls" = $imageUrls
       "aspects" = $aspects
-      "condition" = "NEW"
+      "condition" = $condition
     }
   }
 

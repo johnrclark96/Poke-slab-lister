@@ -15,6 +15,12 @@ This package switches listings to **7‑day AUCTIONS** and ensures the three scr
 - Titles: language tag `[EN]`/`[JP]` after card name
 - SKU: optional/blank; falls back to `{grader}-{cert_number}` only if required
 
+## YAML configuration
+Two YAML files control text and item specifics used by `lister.ps1`:
+
+- `specs_item_specifics.yaml` provides default listing values and maps CSV columns to eBay item specifics. Editing its `defaults` (for example `condition` or `quantity`) or `ebay_aspect_mapping` changes those fields in the generated listing payload.
+- `specs_text_formats.yaml` defines the title and description templates plus language tags. Updates to these templates immediately affect the titles and descriptions produced for each listing.
+
 ## Environment variables (optional)
 - `CSV_PATH` → path to `master.csv` (if not passing `-CsvPath`)
 - `IMAGES_SRC` → source root where your iPhone photos live (USB/DCIM path)
