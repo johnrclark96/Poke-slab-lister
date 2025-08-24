@@ -1,41 +1,47 @@
+# Pokémon Slab Auction Lister
 
-# eBay Pokémon Slab Listing — Auction Package (Full, v2)
+Scripts for creating eBay auctions of graded Pokémon cards. All logic is driven by YAML files in the repo root.
 
-This package switches listings to **7‑day AUCTIONS** and ensures the three scripts work together:
-1) `Pull-Photos-FromMasterCSV.ps1` → copies your referenced iPhone photos into the Images folder
-2) `eps_uploader.ps1` → uploads those photos to eBay Picture Services (EPS) and writes `eps_image_map.json`
-3) `lister.ps1` → creates AUCTION offers using the EPS URLs and your CSV data
+## YAML config
+- **specs_item_specifics.yaml** – normalization maps, defaults, and listing policies. Sets `Brand` to "The Pokémon Company" and `categoryId` 183454.
+- **specs_text_formats.yaml** – title and description templates.
+
+### Title rules
+- With specialty: `{card_name} {specialty} {card_number} – {set_name} – {grade} – {language}`
+- Without specialty: `{card_name} {card_number} – {set_name} – {grade} – {language}`
+
+### Description template
+```
+<Card Name> #<Card Number> from <Set Name>
+<Grader> <Grade>
+Cert #: <CertNumber>
+Shipped quickly and securely in a bubble mailer with ding defender
+```
 
 ## Auction defaults
-- Listing Type: **AUCTION**
-- Duration: **P7D**
-- Start Price: **75% of `calculated_price`**, rounded to **.99**
-- Best Offer: **Disabled**
-- Brand Aspect: **The Pokémon Company**
-- Titles: language tag `[EN]`/`[JP]` after card name
-- SKU: optional/blank; falls back to `{grader}-{cert_number}` only if required
+- format: `AUCTION`
+- listingDuration: `P7D`
+- startPrice: 75% of `calculated_price` rounded down to end in `.99` (e.g. `40.00 → 29.99`)
+- Brand aspect fixed to "The Pokémon Company"
 
-## Credentials
-Create a `secrets.env` file in the repository root with your eBay credentials and policy IDs. Each line should follow `KEY=VALUE` format:
-
+## Secrets
+Not committed. Stored at `C:\Users\johnr\Documents\ebay\secrets.env` with keys:
 ```
-EBAY_CLIENT_ID=your-app-id
-EBAY_CLIENT_SECRET=your-app-secret
-EBAY_REFRESH_TOKEN=your-refresh-token
-EBAY_PAYMENT_POLICY_ID=your-payment-policy-id
-EBAY_FULFILLMENT_POLICY_ID=your-fulfillment-policy-id
-EBAY_RETURN_POLICY_ID=your-return-policy-id
-EBAY_LOCATION_ID=your-location-id
+EBAY_CLIENT_ID
+EBAY_CLIENT_SECRET
+EBAY_REFRESH_TOKEN
+EBAY_PAYMENT_POLICY_ID=272036644014
+EBAY_RETURN_POLICY_ID=272036672014
+EBAY_FULFILLMENT_POLICY_ID=272036663014
+EBAY_LOCATION_ID=POKESLABS_US
 ```
 
-`List_Slabs.bat` loads these values and uses them when invoking the PowerShell scripts. The file is already ignored by git.
+## DryRun vs Live
+Scripts default to DryRun and never hit network. Live mode requires **all** of:
+1. Pass `-Live` (or `List_Slabs.bat live`).
+2. `EBAY_ENV=prod`.
+3. Sentinel file `.ebay-live.ok` in repo root.
 
-## Environment variables (optional)
-- `CSV_PATH` → path to `master.csv` (if not passing `-CsvPath`)
-- `IMAGES_SRC` → source root where your iPhone photos live (USB/DCIM path)
-- `IMAGES_DIR` → destination Images folder (defaults to `.\Images`)
-
-## Run order (as in your batch file)
-1. Pull photos → `PowerShell -File .\Pull-Photos-FromMasterCSV.ps1 -CsvPath .\master.csv`
-2. EPS upload → `PowerShell -File .\eps_uploader.ps1 -CsvPath .\master.csv`
-3. Listing → `PowerShell -File .\lister.ps1 -CsvPath .\master.csv`
+When DryRun:
+- `eps_uploader.ps1` builds `eps_image_map.json` with `https://example.invalid/eps/...` URLs.
+- `lister.ps1` writes request bodies to `_out/payloads/` instead of calling eBay.
