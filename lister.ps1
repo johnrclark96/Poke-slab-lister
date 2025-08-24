@@ -81,8 +81,18 @@ $rows = Import-Csv -Path $CsvPath
 foreach ($row in $rows) {
   $body = New-OfferBody -row $row -epsUrls $epsUrls
   Write-Host "Creating AUCTION offer for $($row.card_name) #$($row.card_number) (Cert $($row.cert_number))"
-  # TODO: Post to eBay Sell Inventory API with your ACCESS_TOKEN:
-  # Invoke-RestMethod -Method Post -Uri "https://api.ebay.com/sell/inventory/v1/offer" `
-  #   -Headers @{ Authorization = "Bearer $env:ACCESS_TOKEN"; "Content-Type" = "application/json" } `
-  #   -Body $body
+  try {
+    $response = Invoke-RestMethod -Method Post -Uri "https://api.ebay.com/sell/inventory/v1/offer" `
+      -Headers @{ Authorization = "Bearer $env:ACCESS_TOKEN"; "Content-Type" = "application/json" } `
+      -Body $body
+
+    if ($response.offerId) {
+      Write-Host "Created offer with ID $($response.offerId)"
+    } else {
+      Write-Warning "Offer creation returned unexpected response: $(ConvertTo-Json $response -Depth 8)"
+    }
+  }
+  catch {
+    Write-Error "Failed to create offer: $($_.Exception.Message)"
+  }
 }
