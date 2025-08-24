@@ -74,6 +74,14 @@ function New-OfferBody($row, $epsUrls) {
   return ($payload | ConvertTo-Json -Depth 8)
 }
 
+# Validate required inputs
+if (-not (Test-Path $CsvPath)) {
+  throw "CSV file not found: $CsvPath"
+}
+if ([string]::IsNullOrWhiteSpace($env:ACCESS_TOKEN)) {
+  throw "ACCESS_TOKEN environment variable is required"
+}
+
 # Load EPS image URL map if present
 $epsMapPath = Join-Path (Split-Path $CsvPath) "eps_image_map.json"
 $epsUrls = @{}
