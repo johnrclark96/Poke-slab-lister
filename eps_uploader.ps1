@@ -90,7 +90,7 @@ foreach ($name in $filenames) {
     exit 1
   }
   if (-not ($url -like 'https://*')) {
-    Write-Error "Non-HTTPS URL returned for $name: $url"
+    Write-Error "Non-HTTPS URL returned for ${name}: $url"
     exit 1
   }
   $imgMap[$name] = $url
