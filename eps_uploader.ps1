@@ -15,6 +15,7 @@ if (-not (Test-Path $ImagesDir)) { throw "Images directory not found: $ImagesDir
 $mapPath = if ([System.IO.Path]::IsPathRooted($OutMap)) { $OutMap } else { Join-Path (Split-Path $CsvPath) $OutMap }
 $imgMap = @{}
 if (Test-Path $mapPath) { $imgMap = Get-Content $mapPath | ConvertFrom-Json -AsHashtable }
+foreach ($v in $imgMap.Values) { if (-not ($v -like 'https://*')) { throw "Non-HTTPS URL in map: $v" } }
 
 $cols = @('Image_Front','Image_Back','TopFrontImage','TopBackImage')
 $rows = Import-Csv -Path $CsvPath
@@ -73,10 +74,15 @@ foreach ($row in $rows) {
       Write-Error "Failed to upload $fname: $_"
       exit 1
     }
+    if (-not ($url -like 'https://*')) {
+      Write-Error "Non-HTTPS URL returned for $fname: $url"
+      exit 1
+    }
     $imgMap[$fname] = $url
     $uploaded++
   }
 }
 
 $imgMap | ConvertTo-Json | Out-File -Encoding utf8 -FilePath $mapPath
+foreach ($v in $imgMap.Values) { if (-not ($v -like 'https://*')) { throw "Non-HTTPS URL in map: $v" } }
 Write-Host "uploaded $uploaded new, reused $cached cached"

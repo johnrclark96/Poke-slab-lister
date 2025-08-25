@@ -13,6 +13,7 @@ if (-not (Test-Path $CsvPath)) { throw "CSV file not found: $CsvPath" }
 $mapPath = if ([System.IO.Path]::IsPathRooted($ImageMap)) { $ImageMap } else { Join-Path (Split-Path $CsvPath) $ImageMap }
 if (-not (Test-Path $mapPath)) { throw "Image map not found: $mapPath" }
 $epsUrls = Get-Content $mapPath | ConvertFrom-Json -AsHashtable
+foreach ($v in $epsUrls.Values) { if (-not ($v -like 'https://*')) { throw "Non-HTTPS URL in map: $v" } }
 
 if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
   Install-Module -Name powershell-yaml -Scope CurrentUser -Force | Out-Null
@@ -32,7 +33,9 @@ foreach ($col in $requiredCols) {
 
 foreach ($row in $rows) {
   if (-not $itemSpecs.grader_map.ContainsKey($row.Grader)) { throw "Unmapped grader: $($row.Grader)" }
+  if ($itemSpecs.grade_map -and -not $itemSpecs.grade_map.ContainsKey($row.Grade)) { throw "Unmapped grade: $($row.Grade)" }
   if (-not $itemSpecs.language_map.ContainsKey($row.Language)) { throw "Unmapped language: $($row.Language)" }
+  if ($row.Rarity -and -not $itemSpecs.rarity_map.ContainsKey($row.Rarity)) { throw "Unmapped rarity: $($row.Rarity)" }
 }
 
 function Fill-Template([string]$template, [hashtable]$data) {
@@ -67,14 +70,19 @@ function Invoke-EbayApi {
         Start-Sleep -Seconds $delay
         $attempt++
       } else {
+        if ($resp) {
+          $reader = [System.IO.StreamReader]::new($resp.GetResponseStream())
+          $body = $reader.ReadToEnd()
+          Write-Error "$Tag failed HTTP $($resp.StatusCode.value__): $body"
+        } else {
+          Write-Error "$Tag failed: $_"
+        }
         throw
       }
     }
   }
 }
 
-$durationDays = if ($env:LISTING_DURATION_DAYS) { $env:LISTING_DURATION_DAYS } else { 7 }
-$durationIso = "P$durationDays" + 'D'
 $marketplace = if ($env:EBAY_MARKETPLACE_ID) { $env:EBAY_MARKETPLACE_ID } else { 'EBAY_US' }
 
 foreach ($row in $rows) {
@@ -98,15 +106,17 @@ foreach ($row in $rows) {
     $startPrice = [math]::Floor($calc * 0.75 - 1) + 0.99
     $priceObj = @{ startPrice = @{ value = [math]::Round($startPrice,2); currency='USD' } }
     $format = 'AUCTION'
+    $duration = 'DAYS_7'
   } else {
     $priceObj = @{ price = @{ value = [math]::Round($calc,2); currency='USD' } }
     $format = 'FIXED_PRICE'
+    $duration = 'GTC'
   }
   $aspects = @{ Brand = $itemSpecs.brand }
   $offer = @{
-    sku=$sku; marketplaceId=$marketplace; format=$ListingFormat; listingDuration=$durationIso; pricingSummary=$priceObj;
+    sku=$sku; marketplaceId=$marketplace; format=$format; listingDuration=$duration; pricingSummary=$priceObj;
     listingPolicies=@{ paymentPolicyId=$env:EBAY_PAYMENT_POLICY_ID; returnPolicyId=$env:EBAY_RETURN_POLICY_ID; fulfillmentPolicyId=$env:EBAY_FULFILLMENT_POLICY_ID };
-    merchantLocationKey=$env:EBAY_LOCATION_ID;
+    inventoryLocationId=$env:EBAY_LOCATION_ID;
     item=@{ title=$title; description=$desc; imageUrls=$images; aspects=$aspects }
   }
   $offerJson = $offer | ConvertTo-Json -Depth 8
