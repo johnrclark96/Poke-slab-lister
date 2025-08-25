@@ -24,6 +24,7 @@ if "%LISTING_DURATION_DAYS%"=="" set "LISTING_DURATION_DAYS=7"
 
 set "CSV=%BASEDIR%\master.csv"
 set "IMGDIR=%BASEDIR%\Images"
+if "%PHOTOS_SRC%"=="" set "PHOTOS_SRC=%IMGDIR%"
 set "PULL_SCRIPT=%~dp0Pull-Photos-FromMasterCSV.ps1"
 set "EPS_SCRIPT=%~dp0eps_uploader.ps1"
 set "LISTER_SCRIPT=%~dp0lister.ps1"
