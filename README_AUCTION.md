@@ -29,6 +29,7 @@ Shipped quickly and securely in a bubble mailer with ding defender
 1. Copy iPhone photos named in `master.csv` into the local `Images/` folder.
 2. Upload only uncached photos to eBay Picture Services, storing HTTPS URLs in `eps_image_map.json`.
 3. Create inventory items and offers, then publish them to eBay.
+- If `PHOTOS_SRC` is unset or set to `auto`, Step 0 auto-discovers an attached iPhone under `Internal Storage\DCIM`; otherwise it recurses the folders listed in `PHOTOS_SRC`.
 
 The batch script logs each step to `logs/run_YYYYMMDD_HHMMSS.log` and stops on the first error.
 

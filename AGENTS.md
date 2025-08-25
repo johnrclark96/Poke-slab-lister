@@ -29,3 +29,4 @@
 - **Publish:** run `List_Slabs.bat live` (requires secrets, `EBAY_ENV=prod`, and `.ebay-live.ok`).
 - **Logs:** see `logs/run_YYYYMMDD_HHmmss.log`; scripts exit non-zero on failure.
 - **Common failures:** missing image filenames, unmapped YAML values, inventory location or policy ID mismatches.
+- **Photos source resolution:** Step 0 searches `PHOTOS_SRC` (semicolon-separated folders) recursively. If `PHOTOS_SRC` is unset or set to `auto`, it auto-discovers an attached iPhone under `This PC\Apple iPhone\Internal Storage\DCIM` and copies matching filenames. Locked or hidden devices cause a fail-fast message to unlock the phone.
