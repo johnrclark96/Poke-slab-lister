@@ -55,21 +55,31 @@ if not exist "%LOGDIR%" mkdir "%LOGDIR%" >nul 2>&1
 for /f %%A in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "STAMP=%%A"
 set "LOG=%LOGDIR%\run_%STAMP%.log"
 
+if /I "%~1"=="live" goto :do_oauth
+REM DryRun mode uses a placeholder token
 set "RUNMODE=-DryRun"
-if /I "%~1"=="live" set "RUNMODE="
+set "ACCESS_TOKEN=dummy"
+goto :after_oauth
 
-REM Obtain OAuth token when running live
-if /I "%~1"=="live" (
-  powershell -NoProfile -Command "$pair=\"${env:EBAY_CLIENT_ID}:${env:EBAY_CLIENT_SECRET}\"; $basic=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair)); $headers=@{Authorization=\"Basic $basic\"}; $scope='https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account https://api.ebay.com/oauth/api_scope/sell.fulfillment'; $body=@{grant_type='refresh_token';refresh_token=$env:EBAY_REFRESH_TOKEN;scope=$scope}; try { $resp=Invoke-RestMethod -Method Post -Uri 'https://api.ebay.com/identity/v1/oauth2/token' -Headers $headers -Body $body -ContentType 'application/x-www-form-urlencoded'; $resp.access_token | Out-File -FilePath \"$env:LOGDIR\token.tmp\" -NoNewline } catch { $_ | Out-String | Add-Content -Path "$env:LOG"; exit 1 }" 1>>"%LOG%" 2>>&1
-  if errorlevel 1 goto :failure
-  set /p ACCESS_TOKEN<"%LOGDIR%\token.tmp"
-  del "%LOGDIR%\token.tmp"
-  if "%ACCESS_TOKEN%"=="" goto :failure
-) else (
-  set "ACCESS_TOKEN=dummy"
-)
-set "ACCESS_TOKEN=%ACCESS_TOKEN%"
+:do_oauth
+set "RUNMODE="
+rem precreate log so redirection always has a target
+type nul >> "%LOG%"
+powershell -NoProfile -Command ^
+  "$pair = $env:EBAY_CLIENT_ID + ':' + $env:EBAY_CLIENT_SECRET; " ^
+  "$basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair)); " ^
+  "$headers = @{ Authorization = 'Basic ' + $basic }; " ^
+  "$scope = 'https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account https://api.ebay.com/oauth/api_scope/sell.fulfillment'; " ^
+  "$body = @{ grant_type = 'refresh_token'; refresh_token = $env:EBAY_REFRESH_TOKEN; scope = $scope }; " ^
+  "try { $resp = Invoke-RestMethod -Method Post -Uri 'https://api.ebay.com/identity/v1/oauth2/token' -Headers $headers -Body $body -ContentType 'application/x-www-form-urlencoded'; " ^
+  "      $resp.access_token | Out-File -FilePath ($env:LOGDIR + '/token.tmp') -NoNewline } " ^
+  "catch { $_ | Out-String | Add-Content -Path $env:LOG; exit 1 }" 1>>"%LOG%" 2>>&1
+if errorlevel 1 goto :failure
+set /p ACCESS_TOKEN<"%LOGDIR%\token.tmp"
+del "%LOGDIR%\token.tmp" 2>nul
+goto :after_oauth
 
+:after_oauth
 call :RunStep "Step 0 (photo pull)"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PULL_SCRIPT%" -CsvPath "%CSV%" -DestDir "%IMGDIR%" 1>>"%LOG%" 2>>&1
 if errorlevel 1 goto :failure
@@ -94,3 +104,4 @@ exit /b 0
 :failure
 echo %STEP% failed. See log: %LOG%
 exit /b 1
+
