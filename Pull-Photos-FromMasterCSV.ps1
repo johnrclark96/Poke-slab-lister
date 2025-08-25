@@ -38,9 +38,9 @@ foreach ($row in $rows) {
     }
   }
   if ($rowMissing.Count -eq 0) {
-    Write-Host "$label: OK"
+    Write-Host "${label}: OK"
   } else {
-    Write-Host "$label: missing $($rowMissing -join ', ')"
+    Write-Host "${label}: missing $($rowMissing -join ', ')"
   }
 }
 if ($missing.Count -gt 0) {
