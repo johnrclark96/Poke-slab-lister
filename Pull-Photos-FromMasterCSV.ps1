@@ -166,10 +166,12 @@ foreach ($row in $rows) {
     $missing.Add($fname) | Out-Null
     $rowMsgs += "missing $fname"
   }
+
   if ($rowMsgs.Count -gt 0) {
     Write-Host ("{0}: {1}" -f $label, ($rowMsgs -join '; '))
   } else {
     Write-Host ("{0}: no images" -f $label)
+
   }
 }
 Write-Host ("Summary: copied {0}, already present {1}, missing {2}" -f $copied, $already, $missing.Count)
