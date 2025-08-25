@@ -1,5 +1,6 @@
 @echo off
-cd /d "%~dp0"  REM Ensure we run from the script directory
+cd /d "%~dp0"
+REM Ensure we run from the script directory
 setlocal ENABLEDELAYEDEXPANSION
 
 set "SECRETS=%~dp0secrets.env"
@@ -59,20 +60,26 @@ if /I "%~1"=="live" set "RUNMODE="
 
 REM Obtain OAuth token when running live
 if /I "%~1"=="live" (
-  powershell -NoProfile -Command "$pair=\"${env:EBAY_CLIENT_ID}:${env:EBAY_CLIENT_SECRET}\"; $basic=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair)); $headers=@{Authorization=\"Basic $basic\"}; $scope='https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account https://api.ebay.com/oauth/api_scope/sell.fulfillment'; $body=@{grant_type='refresh_token';refresh_token=$env:EBAY_REFRESH_TOKEN;scope=$scope}; try { $resp=Invoke-RestMethod -Method Post -Uri 'https://api.ebay.com/identity/v1/oauth2/token' -Headers $headers -Body $body -ContentType 'application/x-www-form-urlencoded'; $resp.access_token >'$LOGDIR\token.tmp' } catch { $_ | Out-String | Add-Content '$LOG'; exit 1 }" 1>>"%LOG%" 2>>&1
+  powershell -NoProfile -Command "$pair=\"${env:EBAY_CLIENT_ID}:${env:EBAY_CLIENT_SECRET}\"; $basic=[Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair)); $headers=@{Authorization=\"Basic $basic\"}; $scope='https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account https://api.ebay.com/oauth/api_scope/sell.fulfillment'; $body=@{grant_type='refresh_token';refresh_token=$env:EBAY_REFRESH_TOKEN;scope=$scope}; try { $resp=Invoke-RestMethod -Method Post -Uri 'https://api.ebay.com/identity/v1/oauth2/token' -Headers $headers -Body $body -ContentType 'application/x-www-form-urlencoded'; $resp.access_token | Out-File -FilePath \"$env:LOGDIR\token.tmp\" -NoNewline } catch { $_ | Out-String | Add-Content $env:LOG; exit 1 }" 1>>"%LOG%" 2>>&1
   if errorlevel 1 goto :failure
-  set /p ACCESS_TOKEN=<"%LOGDIR%\token.tmp"
+  set /p ACCESS_TOKEN<"%LOGDIR%\token.tmp"
   del "%LOGDIR%\token.tmp"
   if "%ACCESS_TOKEN%"=="" goto :failure
 ) else (
   set "ACCESS_TOKEN=dummy"
 )
 set "ACCESS_TOKEN=%ACCESS_TOKEN%"
-call :RunStep "Step 0 (photo pull)" powershell -NoProfile -ExecutionPolicy Bypass -File "%PULL_SCRIPT%" -CsvPath "%CSV%" -DestDir "%IMGDIR%"
+
+call :RunStep "Step 0 (photo pull)"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PULL_SCRIPT%" -CsvPath "%CSV%" -DestDir "%IMGDIR%" 1>>"%LOG%" 2>>&1
 if errorlevel 1 goto :failure
-call :RunStep "Step 1 (EPS)" powershell -NoProfile -ExecutionPolicy Bypass -File "%EPS_SCRIPT%" -CsvPath "%CSV%" -ImagesDir "%IMGDIR%" -AccessToken "%ACCESS_TOKEN%" -OutMap "%OUTMAP%" %RUNMODE%
+
+call :RunStep "Step 1 (EPS)"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%EPS_SCRIPT%" -CsvPath "%CSV%" -ImagesDir "%IMGDIR%" -AccessToken "%ACCESS_TOKEN%" -OutMap "%OUTMAP%" %RUNMODE% 1>>"%LOG%" 2>>&1
 if errorlevel 1 goto :failure
-call :RunStep "Step 2 (Lister)" powershell -NoProfile -ExecutionPolicy Bypass -File "%LISTER_SCRIPT%" -CsvPath "%CSV%" -AccessToken "%ACCESS_TOKEN%" -ImageMap "%OUTMAP%" -ListingFormat "%LISTING_FORMAT%" -ListingDurationDays "%LISTING_DURATION_DAYS%" %RUNMODE%
+
+call :RunStep "Step 2 (Lister)"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%LISTER_SCRIPT%" -CsvPath "%CSV%" -AccessToken "%ACCESS_TOKEN%" -ImageMap "%OUTMAP%" -ListingFormat "%LISTING_FORMAT%" -ListingDurationDays "%LISTING_DURATION_DAYS%" %RUNMODE% 1>>"%LOG%" 2>>&1
 if errorlevel 1 goto :failure
 
 echo Done. Log: %LOG%
@@ -80,11 +87,9 @@ exit /b 0
 
 :RunStep
 set "STEP=%~1"
-shift
 echo.>>"%LOG%"
 echo ===== [%DATE% %TIME%] %STEP% =====>>"%LOG%"
-%* 1>>"%LOG%" 2>>&1
-exit /b %errorlevel%
+exit /b 0
 
 :failure
 echo %STEP% failed. See log: %LOG%

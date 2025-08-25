@@ -2,7 +2,7 @@ param(
   [Parameter(Mandatory)][string]$CsvPath,
   [Parameter(Mandatory)][string]$ImagesDir,
   [Parameter(Mandatory)][string]$AccessToken,
-  [string]$OutMap = "$PSScriptRoot\eps_image_map.json",
+  [string]$OutMap = (Join-Path $env:BASEDIR 'eps_image_map.json'),
   [switch]$DryRun
 )
 
@@ -86,14 +86,7 @@ foreach ($name in $filenames) {
   try {
     $url = Invoke-EpsUpload -LocalPath $path -PictureName $name
   } catch {
-    $resp = $_.Exception.Response
-    if ($resp) {
-      $reader = [System.IO.StreamReader]::new($resp.GetResponseStream())
-      $body = $reader.ReadToEnd()
-      Write-Error "Upload failed HTTP $($resp.StatusCode.value__): $body"
-    } else {
-      Write-Error "Upload failed: $_"
-    }
+    Write-Error $_
     exit 1
   }
   if (-not ($url -like 'https://*')) {
@@ -104,7 +97,9 @@ foreach ($name in $filenames) {
   $uploaded++
 }
 
-$imgMap | ConvertTo-Json | Out-File -Encoding utf8 -FilePath $mapPath
+$tmpPath = "$mapPath.tmp"
+$imgMap | ConvertTo-Json | Out-File -Encoding utf8 -FilePath $tmpPath
+Move-Item -Force $tmpPath $mapPath
 foreach ($v in $imgMap.Values) { if (-not ($v -like 'https://*')) { throw "Non-HTTPS URL in map: $v" } }
 Write-Host "uploaded $uploaded, reused $cached"
 exit 0

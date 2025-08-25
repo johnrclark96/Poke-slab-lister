@@ -28,28 +28,34 @@ $textSpecPath = Join-Path $PSScriptRoot 'specs_text_formats.yaml'
 $itemSpecs = ConvertFrom-Yaml (Get-Content $itemSpecPath -Raw)
 $textSpecs = ConvertFrom-Yaml (Get-Content $textSpecPath -Raw)
 
-$requiredCols = @('CardName','CardNumber','SetName','Language','Grader','Grade','CertNumber','calculated_price','Image_Front','Image_Back','TopFrontImage','TopBackImage')
-$rows = Import-Csv -Path $CsvPath
-foreach ($col in $requiredCols) {
-  if (-not ($rows[0].PSObject.Properties.Name -contains $col)) { throw "Missing required column: $col" }
-}
+  $requiredCols = @('CardName','CardNumber','SetName','Language','Grader','Grade','CertNumber','calculated_price','Image_Front','Image_Back','TopFrontImage','TopBackImage')
+  $rows = Import-Csv -Path $CsvPath
+  foreach ($col in $requiredCols) {
+    if (-not ($rows[0].PSObject.Properties.Name -contains $col)) { throw "Missing required column: $col" }
+  }
 
-$missing = @()
-foreach ($row in $rows) {
-  if (-not $itemSpecs.grader_map.ContainsKey($row.Grader)) { throw "Unmapped grader: $($row.Grader)" }
-  if ($itemSpecs.grade_map -and -not $itemSpecs.grade_map.ContainsKey($row.Grade)) { throw "Unmapped grade: $($row.Grade)" }
-  if (-not $itemSpecs.language_map.ContainsKey($row.Language)) { throw "Unmapped language: $($row.Language)" }
-  if ($row.Rarity -and -not $itemSpecs.rarity_map.ContainsKey($row.Rarity)) { throw "Unmapped rarity: $($row.Rarity)" }
-  foreach ($fname in @($row.Image_Front,$row.Image_Back,$row.TopFrontImage,$row.TopBackImage)) {
-    if ($fname -and -not ($epsUrls.ContainsKey($fname) -and $epsUrls[$fname] -like 'https://*')) {
-      $missing += $fname
+  $missingGraders   = [System.Collections.Generic.HashSet[string]]::new()
+  $missingGrades    = [System.Collections.Generic.HashSet[string]]::new()
+  $missingLangs     = [System.Collections.Generic.HashSet[string]]::new()
+  $missingRarities  = [System.Collections.Generic.HashSet[string]]::new()
+  $missingImages    = [System.Collections.Generic.HashSet[string]]::new()
+  foreach ($row in $rows) {
+    if (-not $itemSpecs.grader_map.ContainsKey($row.Grader)) { $missingGraders.Add($row.Grader) | Out-Null }
+    if ($itemSpecs.grade_map -and -not $itemSpecs.grade_map.ContainsKey($row.Grade)) { $missingGrades.Add($row.Grade) | Out-Null }
+    if (-not $itemSpecs.language_map.ContainsKey($row.Language)) { $missingLangs.Add($row.Language) | Out-Null }
+    if ($row.Rarity -and -not $itemSpecs.rarity_map.ContainsKey($row.Rarity)) { $missingRarities.Add($row.Rarity) | Out-Null }
+    foreach ($fname in @($row.Image_Front,$row.Image_Back,$row.TopFrontImage,$row.TopBackImage)) {
+      if ($fname -and -not ($epsUrls.ContainsKey($fname) -and $epsUrls[$fname] -like 'https://*')) { $missingImages.Add($fname) | Out-Null }
     }
   }
-}
-if ($missing.Count -gt 0) {
-  Write-Error ("Missing EPS URLs for: {0}" -f ($missing -join ', '))
-  exit 1
-}
+  if ($missingGraders.Count -or $missingGrades.Count -or $missingLangs.Count -or $missingRarities.Count -or $missingImages.Count) {
+    if ($missingGraders.Count)  { Write-Error ("Unmapped graders: {0}" -f ($missingGraders -join ', ')) }
+    if ($missingGrades.Count)   { Write-Error ("Unmapped grades: {0}" -f ($missingGrades -join ', ')) }
+    if ($missingLangs.Count)    { Write-Error ("Unmapped languages: {0}" -f ($missingLangs -join ', ')) }
+    if ($missingRarities.Count) { Write-Error ("Unmapped rarities: {0}" -f ($missingRarities -join ', ')) }
+    if ($missingImages.Count)   { Write-Error ("Missing EPS URLs for: {0}" -f ($missingImages -join ', ')) }
+    exit 1
+  }
 
 function Fill-Template([string]$template, [hashtable]$data) {
   $result = $template
@@ -106,18 +112,35 @@ foreach ($row in $rows) {
   $grader = $itemSpecs.grader_map[$row.Grader]
   $language = $itemSpecs.language_map[$row.Language]
   $titleTemplate = if ($row.Specialty) { $textSpecs.with_specialty } else { $textSpecs.without_specialty }
-  $title = Fill-Template $titleTemplate @{ card_name=$row.CardName; specialty=$row.Specialty; card_number=$row.CardNumber; set_name=$row.SetName; grade=$row.Grade; language=$language }
+  $titleData = @{ card_name=$row.CardName; specialty=$row.Specialty; card_number=$row.CardNumber; set_name=$row.SetName; grade=$row.Grade; language=$language }
+  $title = Fill-Template $titleTemplate $titleData
+  $title = $title.Replace('!','')
+  if ($title.Length -gt 80) {
+    $over = $title.Length - 80
+    $trimLen = [math]::Max(0, $row.SetName.Length - $over)
+    $titleData.set_name = $row.SetName.Substring(0,$trimLen)
+    $title = Fill-Template $titleTemplate $titleData
+    $title = $title.Replace('!','')
+    if ($title.Length -gt 80) { $title = $title.Substring(0,80) }
+  }
   $desc = Fill-Template $textSpecs.desc @{ 'Card Name'=$row.CardName; 'Card Number'=$row.CardNumber; 'Set Name'=$row.SetName; 'Grader'=$grader; 'Grade'=$row.Grade; 'CertNumber'=$row.CertNumber }
+  $desc = $desc.Replace('!','')
+  $descLines = $desc -split "`r?`n"
+  if ($descLines.Count -ne 4) { throw "Description format invalid for $($row.CertNumber)" }
+  $desc = ($descLines | ForEach-Object { $_.TrimEnd() }) -join "`n"
   $sku = if ([string]::IsNullOrWhiteSpace($row.SKU)) { "$($row.Grader)-$($row.CertNumber)" } else { $row.SKU }
 
-  $inventory = @{ sku=$sku; availability=@{shipToLocationAvailability=@{quantity=1}}; condition=$itemSpecs.condition_default; product=@{brand=$itemSpecs.brand; title=$title; description=$desc; imageUrls=$images} }
+  $inventory = @{ sku=$sku; availability=@{shipToLocationAvailability=@{quantity=1}}; condition=$itemSpecs.condition_default; product=@{brand='The Pokémon Company'; title=$title; description=$desc; imageUrls=$images} }
   $invJson = $inventory | ConvertTo-Json -Depth 8
   Invoke-EbayApi -Method Put -Url ("https://api.ebay.com/sell/inventory/v1/inventory_item/"+$sku) -Body $invJson -Tag 'InventoryItem'
 
   $calc = [double]$row.calculated_price
   if ($ListingFormat -eq 'AUCTION') {
-    $startPrice = [math]::Floor($calc * 0.75 - 1) + 0.99
-    $priceObj = @{ startPrice = @{ value = [math]::Round($startPrice,2); currency='USD' } }
+    $raw = $calc * 0.75
+    $startPrice = [math]::Floor($raw - 0.01) + 0.99
+    $startPrice = [math]::Floor($startPrice * 100) / 100
+    if ($startPrice -lt 0.99) { $startPrice = 0.99 }
+    $priceObj = @{ startPrice = @{ value = $startPrice; currency='USD' } }
     $format = 'AUCTION'
     $duration = "DAYS_$ListingDurationDays"
   } else {
@@ -125,7 +148,7 @@ foreach ($row in $rows) {
     $format = 'FIXED_PRICE'
     $duration = 'GTC'
   }
-  $aspects = @{ Brand = $itemSpecs.brand }
+  $aspects = @{ Brand = 'The Pokémon Company' }
   $offer = @{
     sku=$sku; marketplaceId=$marketplace; format=$format; listingDuration=$duration; pricingSummary=$priceObj;
     listingPolicies=@{ paymentPolicyId=$env:EBAY_PAYMENT_POLICY_ID; returnPolicyId=$env:EBAY_RETURN_POLICY_ID; fulfillmentPolicyId=$env:EBAY_FULFILLMENT_POLICY_ID };
@@ -137,5 +160,9 @@ foreach ($row in $rows) {
 
   $publish = @{ offerId='DUMMY' } | ConvertTo-Json
   Invoke-EbayApi -Method Post -Url 'https://api.ebay.com/sell/inventory/v1/offer/publish' -Body $publish -Tag 'Publish'
-  Write-Host "$sku listed"
+  if ($DryRun) {
+    Write-Host "DryRun: $sku ready"
+  } else {
+    Write-Host "$sku listed"
+  }
 }
