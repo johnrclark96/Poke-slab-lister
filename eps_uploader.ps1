@@ -1,8 +1,8 @@
 param(
-  [Parameter(Mandatory=$true)][string]$CsvPath,
-  [Parameter(Mandatory=$true)][string]$ImagesDir,
-  [Parameter(Mandatory=$true)][string]$AccessToken,
-  [string]$OutMap = 'eps_image_map.json',
+  [Parameter(Mandatory)][string]$CsvPath,
+  [Parameter(Mandatory)][string]$ImagesDir,
+  [Parameter(Mandatory)][string]$AccessToken,
+  [string]$OutMap = "$PSScriptRoot\eps_image_map.json",
   [switch]$DryRun
 )
 
@@ -19,7 +19,30 @@ foreach ($v in $imgMap.Values) { if (-not ($v -like 'https://*')) { throw "Non-H
 
 $cols = @('Image_Front','Image_Back','TopFrontImage','TopBackImage')
 $rows = Import-Csv -Path $CsvPath
-$uploaded = 0; $cached = 0
+$filenames = [System.Collections.Generic.HashSet[string]]::new()
+foreach ($row in $rows) {
+  foreach ($col in $cols) {
+    if (-not ($row.PSObject.Properties.Name -contains $col)) { continue }
+    $fname = $row.$col
+    if ([string]::IsNullOrWhiteSpace($fname)) { continue }
+    $filenames.Add($fname) | Out-Null
+  }
+}
+
+if ($DryRun) {
+  $missing = @()
+  foreach ($name in $filenames) {
+    if (-not ($imgMap.ContainsKey($name) -and $imgMap[$name] -like 'https://*')) {
+      $missing += $name
+    }
+  }
+  if ($missing.Count -gt 0) {
+    Write-Error ("Missing HTTPS URLs for: {0}" -f ($missing -join ', '))
+    exit 1
+  }
+  Write-Host ("DryRun: {0} images validated" -f $filenames.Count)
+  exit 0
+}
 
 function Invoke-EpsUpload {
   param([string]$LocalPath,[string]$PictureName)
@@ -55,34 +78,33 @@ function Invoke-EpsUpload {
   return $xmlResp.SelectSingleNode('//e:SiteHostedPictureDetails/e:FullURL',$ns).InnerText
 }
 
-foreach ($row in $rows) {
-  foreach ($col in $cols) {
-    if (-not ($row.PSObject.Properties.Name -contains $col)) { continue }
-    $fname = $row.$col
-    if ([string]::IsNullOrWhiteSpace($fname)) { continue }
-    if ($imgMap.ContainsKey($fname)) { $cached++; continue }
-    if ($DryRun) {
-      $imgMap[$fname] = "https://example.invalid/eps/$fname"
-      $uploaded++
-      continue
+$uploaded = 0; $cached = 0
+foreach ($name in $filenames) {
+  if ($imgMap.ContainsKey($name) -and $imgMap[$name] -like 'https://*') { $cached++; continue }
+  $path = Join-Path $ImagesDir $name
+  if (-not (Test-Path $path)) { throw "Image file not found: $path" }
+  try {
+    $url = Invoke-EpsUpload -LocalPath $path -PictureName $name
+  } catch {
+    $resp = $_.Exception.Response
+    if ($resp) {
+      $reader = [System.IO.StreamReader]::new($resp.GetResponseStream())
+      $body = $reader.ReadToEnd()
+      Write-Error "Upload failed HTTP $($resp.StatusCode.value__): $body"
+    } else {
+      Write-Error "Upload failed: $_"
     }
-    $path = Join-Path $ImagesDir $fname
-    if (-not (Test-Path $path)) { throw "Image file not found: $path" }
-    try {
-      $url = Invoke-EpsUpload -LocalPath $path -PictureName $fname
-    } catch {
-      Write-Error "Failed to upload $fname: $_"
-      exit 1
-    }
-    if (-not ($url -like 'https://*')) {
-      Write-Error "Non-HTTPS URL returned for $fname: $url"
-      exit 1
-    }
-    $imgMap[$fname] = $url
-    $uploaded++
+    exit 1
   }
+  if (-not ($url -like 'https://*')) {
+    Write-Error "Non-HTTPS URL returned for $name: $url"
+    exit 1
+  }
+  $imgMap[$name] = $url
+  $uploaded++
 }
 
 $imgMap | ConvertTo-Json | Out-File -Encoding utf8 -FilePath $mapPath
 foreach ($v in $imgMap.Values) { if (-not ($v -like 'https://*')) { throw "Non-HTTPS URL in map: $v" } }
-Write-Host "uploaded $uploaded new, reused $cached cached"
+Write-Host "uploaded $uploaded, reused $cached"
+exit 0

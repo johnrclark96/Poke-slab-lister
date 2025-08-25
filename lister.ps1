@@ -1,8 +1,9 @@
 param(
-  [Parameter(Mandatory=$true)][string]$CsvPath,
-  [Parameter(Mandatory=$true)][string]$AccessToken,
+  [Parameter(Mandatory)][string]$CsvPath,
+  [Parameter(Mandatory)][string]$AccessToken,
+  [string]$ImageMap = "$PSScriptRoot\eps_image_map.json",
   [ValidateSet('AUCTION','FIXED')][string]$ListingFormat = 'AUCTION',
-  [string]$ImageMap = 'eps_image_map.json',
+  [int]$ListingDurationDays = 7,
   [switch]$DryRun
 )
 
@@ -15,10 +16,12 @@ if (-not (Test-Path $mapPath)) { throw "Image map not found: $mapPath" }
 $epsUrls = Get-Content $mapPath | ConvertFrom-Json -AsHashtable
 foreach ($v in $epsUrls.Values) { if (-not ($v -like 'https://*')) { throw "Non-HTTPS URL in map: $v" } }
 
-if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
-  Install-Module -Name powershell-yaml -Scope CurrentUser -Force | Out-Null
+if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
+  if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
+    Install-Module -Name powershell-yaml -Scope CurrentUser -Force | Out-Null
+  }
+  Import-Module powershell-yaml
 }
-Import-Module powershell-yaml
 
 $itemSpecPath = Join-Path $PSScriptRoot 'specs_item_specifics.yaml'
 $textSpecPath = Join-Path $PSScriptRoot 'specs_text_formats.yaml'
@@ -31,11 +34,21 @@ foreach ($col in $requiredCols) {
   if (-not ($rows[0].PSObject.Properties.Name -contains $col)) { throw "Missing required column: $col" }
 }
 
+$missing = @()
 foreach ($row in $rows) {
   if (-not $itemSpecs.grader_map.ContainsKey($row.Grader)) { throw "Unmapped grader: $($row.Grader)" }
   if ($itemSpecs.grade_map -and -not $itemSpecs.grade_map.ContainsKey($row.Grade)) { throw "Unmapped grade: $($row.Grade)" }
   if (-not $itemSpecs.language_map.ContainsKey($row.Language)) { throw "Unmapped language: $($row.Language)" }
   if ($row.Rarity -and -not $itemSpecs.rarity_map.ContainsKey($row.Rarity)) { throw "Unmapped rarity: $($row.Rarity)" }
+  foreach ($fname in @($row.Image_Front,$row.Image_Back,$row.TopFrontImage,$row.TopBackImage)) {
+    if ($fname -and -not ($epsUrls.ContainsKey($fname) -and $epsUrls[$fname] -like 'https://*')) {
+      $missing += $fname
+    }
+  }
+}
+if ($missing.Count -gt 0) {
+  Write-Error ("Missing EPS URLs for: {0}" -f ($missing -join ', '))
+  exit 1
 }
 
 function Fill-Template([string]$template, [hashtable]$data) {
@@ -106,7 +119,7 @@ foreach ($row in $rows) {
     $startPrice = [math]::Floor($calc * 0.75 - 1) + 0.99
     $priceObj = @{ startPrice = @{ value = [math]::Round($startPrice,2); currency='USD' } }
     $format = 'AUCTION'
-    $duration = 'DAYS_7'
+    $duration = "DAYS_$ListingDurationDays"
   } else {
     $priceObj = @{ price = @{ value = [math]::Round($calc,2); currency='USD' } }
     $format = 'FIXED_PRICE'

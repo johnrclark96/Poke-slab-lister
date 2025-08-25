@@ -15,7 +15,7 @@ if (-not $sources) { throw 'PHOTOS_SRC environment variable not set' }
 foreach ($s in $sources) { if (-not (Test-Path $s)) { throw "Source directory not found: $s" } }
 
 $rows = Import-Csv -Path $CsvPath
-$missing = New-Object System.Collections.Generic.List[string]
+$missing = [System.Collections.Generic.HashSet[string]]::new()
 $rowNum = 0
 foreach ($row in $rows) {
   $rowNum++
@@ -34,7 +34,7 @@ foreach ($row in $rows) {
       Copy-Item -LiteralPath $found -Destination (Join-Path $DestDir $fname) -Force
     } else {
       $rowMissing += $fname
-      $missing.Add($fname)
+      $missing.Add($fname) | Out-Null
     }
   }
   if ($rowMissing.Count -eq 0) {
@@ -44,6 +44,7 @@ foreach ($row in $rows) {
   }
 }
 if ($missing.Count -gt 0) {
-  Write-Error ("Missing {0} file(s): {1}" -f $missing.Count, ($missing -join ', '))
+  Write-Error ("Missing {0} file(s): {1}" -f $missing.Count, ([string]::Join(', ',$missing)))
   exit 1
 }
+exit 0
