@@ -74,6 +74,15 @@ if pwsh:
     eps_map = ROOT / 'eps_image_map.json'
     if eps_map.exists():
         eps_map.unlink()
+    with open(CSV_PATH, newline='') as fh:
+        imgs = {
+            row[col]
+            for row in csv.DictReader(fh)
+            for col in ['Image_Front','Image_Back','TopFrontImage','TopBackImage']
+            if row[col]
+        }
+    with open(eps_map, 'w', encoding='utf-8') as fh:
+        json.dump({name: f"https://example.invalid/eps/{name}" for name in imgs}, fh)
     env = dict(os.environ)
     env.update({
         'EBAY_PAYMENT_POLICY_ID': '1',
@@ -81,7 +90,7 @@ if pwsh:
         'EBAY_FULFILLMENT_POLICY_ID': '1',
         'EBAY_LOCATION_ID': '1',
     })
-    subprocess.run([pwsh, str(ROOT/'eps_uploader.ps1'), '-CsvPath', str(CSV_PATH), '-ImagesDir', str(ROOT/'_tests'), '-AccessToken', 'dummy', '-DryRun'], check=True, env=env)
+    subprocess.run([pwsh, str(ROOT/'eps_uploader.ps1'), '-CsvPath', str(CSV_PATH), '-ImagesDir', str(ROOT/'_tests'), '-AccessToken', 'dummy', '-DryRun', '-OutMap', str(eps_map)], check=True, env=env)
     subprocess.run([pwsh, str(ROOT/'lister.ps1'), '-CsvPath', str(CSV_PATH), '-AccessToken', 'dummy', '-ImageMap', str(eps_map), '-ListingFormat', 'AUCTION', '-DryRun'], check=True, env=env)
     with open(eps_map, 'r', encoding='utf-8') as fh:
         eps_data = json.load(fh)
@@ -106,6 +115,6 @@ else:
     assert 'Invoke-EbayApi' in lister_text
     assert 'startPrice' in lister_text
     eps_text = (ROOT/'eps_uploader.ps1').read_text(encoding='utf-8')
-    assert 'example.invalid/eps' in eps_text
+    assert 'DryRun: {0} images validated' in eps_text
 
 print('ok')
