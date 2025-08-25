@@ -93,7 +93,7 @@ if pwsh:
     with open(payload_files[0], 'r', encoding='utf-8') as fh:
         payload = json.load(fh)
     assert payload['format'] == 'AUCTION'
-    assert payload['listingDuration'] == 'P7D'
+    assert payload['listingDuration'] == 'DAYS_7'
     start_value = float(payload['pricingSummary']['startPrice']['value'])
     assert abs(start_value - expected_start) < 0.01
     assert payload['item']['title'] == title
