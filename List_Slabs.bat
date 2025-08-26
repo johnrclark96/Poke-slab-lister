@@ -24,8 +24,6 @@ if "%LISTING_DURATION_DAYS%"=="" set "LISTING_DURATION_DAYS=7"
 
 set "CSV=%BASEDIR%\master.csv"
 set "IMGDIR=%BASEDIR%\Images"
-if "%PHOTOS_SRC%"=="" set "PHOTOS_SRC=%IMGDIR%"
-set "PULL_SCRIPT=%~dp0Pull-Photos-FromMasterCSV.ps1"
 set "EPS_SCRIPT=%~dp0eps_uploader.ps1"
 set "LISTER_SCRIPT=%~dp0lister.ps1"
 set "LOGDIR=%BASEDIR%\logs"
@@ -37,10 +35,6 @@ if not exist "%CSV%" (
 )
 if not exist "%IMGDIR%" (
   echo ERROR: Images directory not found at %IMGDIR%
-  exit /b 1
-)
-if not exist "%PULL_SCRIPT%" (
-  echo ERROR: missing Pull-Photos-FromMasterCSV.ps1
   exit /b 1
 )
 if not exist "%EPS_SCRIPT%" (
@@ -81,10 +75,6 @@ del "%LOGDIR%\token.tmp" 2>nul
 goto :after_oauth
 
 :after_oauth
-call :RunStep "Step 0 (photo pull)"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PULL_SCRIPT%" -CsvPath "%CSV%" -DestDir "%IMGDIR%" 1>>"%LOG%" 2>>&1
-if errorlevel 1 goto :failure
-
 call :RunStep "Step 1 (EPS)"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%EPS_SCRIPT%" -CsvPath "%CSV%" -ImagesDir "%IMGDIR%" -AccessToken "%ACCESS_TOKEN%" -OutMap "%OUTMAP%" %RUNMODE% 1>>"%LOG%" 2>>&1
 if errorlevel 1 goto :failure
